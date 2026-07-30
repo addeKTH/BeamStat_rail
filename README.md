@@ -106,6 +106,12 @@ rearranged at every step.
   arrangement that is worst for that section; `critical` jumps each panel to
   the section where its own effect is largest and labels those sections on the
   sketch; `envelope` draws max and min along the beam in kNm, kN and mm.
+* **The plots** are one per peak: Mmax, Mmin, Vmax and the maximum of the
+  chosen quantity. The moment gets two because the arrangement that sags a
+  section most is not the one that hogs it most, and the train stands
+  differently for each. Three plots are shown where a fourth would say
+  nothing new — in the envelope view, and before a load model is chosen —
+  and they take the extra room rather than leaving a gap.
 * **Save max** runs all 33 load models over the current bridge and downloads
   `peaks.xlsx` with the same columns as the MATLAB button, plus a second sheet
   recording the bridge.

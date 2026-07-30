@@ -18,7 +18,7 @@ const S = {
     L: [24, 30, 24], EI: [30e9], dL: 0.2, w: 0, shp: 'rect',
     clamped: [false, false, false, false],
     train: 'none', nWagon: 10, dyn: true,
-    qty: 'd', peak: 'max', show: 'section', xp: 39
+    qty: 'd', show: 'section', xp: 39
 };
 
 let ILa = null, grid = [], env = [], rng = {}, ENV = null;
@@ -60,7 +60,6 @@ function readInput() {
     S.train = $('inTrain').value;
     S.dyn   = $('inPhi').checked;
     S.qty   = $('inQty').value;
-    S.peak  = $('inPeak').value;
     S.show  = $('inShow').value;
     const xv = +$('inXp').value;
     if (isFinite(xv)) S.xp = xv;
@@ -181,26 +180,34 @@ function ylimFor(q, withTrain) {
     if (withTrain) hi = Math.max(hi, 0.30 * rg);
     return [Math.min(r[0], 0) - 0.10 * rg, hi + 0.12 * rg];
 }
-function peakName(LEp, q) {
-    const n = q + S.peak;
-    return (LEp && LEp.pos && LEp.pos[n]) ? n : q + 'max';
+/* One peak per plot: the arrangement that sags a section most is not the one
+   that hogs it most, so M gets a plot each way.  V, d and r are absolute
+   maxima and need only one. */
+function peakNames() { return ['Mmax', 'Mmin', 'Vmax', S.qty + 'max']; }
+const quantOf = nm => nm.replace(/(max|min)$/, '');
+
+/* n panels sharing the band under the sketch */
+function sizePanels(n) {
+    const tot = 4 * 130;                                // the height of four
+    for (let k = 0; k < 4; k++) {
+        const cv = $('cv' + (k + 1));
+        cv.style.display = (k < n) ? '' : 'none';
+        cv.style.height  = Math.round(tot / n) + 'px';
+    }
 }
 
 function render() {
-    const Lt = Ltot(), qs = ['M', 'V', S.qty];
+    const Lt = Ltot();
     const hasT = !!ENV && S.train !== 'none';
     const mode = (hasT || S.show === 'section') ? S.show : 'section';
     const xlim = [-0.02 * Lt, 1.02 * Lt];
+    const nms  = peakNames();
 
-    /* the critical sections, marked on the sketch */
+    /* the critical sections, marked on the sketch - one per plot */
     let peaks = [];
     if (hasT && mode !== 'section') {
-        const nm = ['Mmax', 'Mmin', 'Vmax'];
-        if (S.qty === 'RF') nm.push('RFmax', 'RFmin'); else nm.push(S.qty + 'max');
-        peaks = nm.map(n => {
-            const q = n.replace(/(max|min)$/, '');
-            return { x: ENV.xpeak[n], label: unit(q).sy + SUB[n.slice(-3)] };
-        });
+        peaks = nms.map(n => ({ x: ENV.xpeak[n],
+                                label: unit(quantOf(n)).sy + SUB[n.slice(-3)] }));
     }
     Plot.beam($('cvBeam'), { L: S.L, xs: supX(), clamped: S.clamped, Ltot: Lt,
                              section: S.xp, showSection: mode === 'section', peaks });
@@ -209,16 +216,24 @@ function render() {
     let LEs = null;
     if (hasT && mode === 'section') LEs = LoadEffect.loadEffect(ilAt([jx]), S.train, opts());
 
-    const cv = ['cv1', 'cv2', 'cv3'].map($);
-    for (let k = 0; k < 3; k++) {
-        const q = qs[k], u = unit(q);
-        const p = { xlim, xticks: k === 2, supports: vsupX(), section: null };
+    /* Four plots for a load arrangement.  Three where a fourth would say
+       nothing new: an envelope already carries both extremes, and with no
+       train the two moment plots would be the same influence line twice. */
+    const plan = (mode === 'envelope' || !hasT)
+               ? ['M', 'V', S.qty].map(q => ({ q }))
+               : nms.map(n => ({ q: quantOf(n), nm: n }));
+    const nP = plan.length;
+    sizePanels(nP);
+
+    for (let k = 0; k < nP; k++) {
+        const q = plan[k].q;
+        const u = unit(q);
+        const p = { xlim, xticks: k === nP - 1, supports: vsupX(), section: null };
 
         if (mode === 'envelope') {
             const isR = q === 'RF';
             const xe = isR ? vsupX() : ENV.xp;
             const E  = ENV[q];
-            const iv = isR ? vsupIdx().map((_, i) => i) : null;
             p.x  = xe;
             p.y  = Array.from(isR ? pickRows(E.max) : E.max, v => v / u.sc);
             p.y2 = Array.from(isR ? pickRows(E.min) : E.min, v => v / u.sc);
@@ -236,7 +251,9 @@ function render() {
                       ' m,   ' + u.sy + SUB.min + ' = ' + fmt(q, p.y2[kn] * u.sc) + ' at x = ' + xe[kn].toFixed(1) + ' m';
         } else {
             const LEp = (mode === 'critical') ? ENV : LEs;
-            const C = hasT ? LEp.pos[peakName(LEp, q)] : bareLE(q);
+            let nm = plan[k].nm;
+            if (hasT && !LEp.pos[nm]) nm = q + 'max';    // no signed min
+            const C = hasT ? LEp.pos[nm] : bareLE(q);
             let rg = 0;
             for (let i = 0; i < C.h.length; i++) rg = Math.max(rg, Math.abs(C.h[i]));
             p.x = ILa.x; p.y = C.h; p.rg = rg || 1;
@@ -246,13 +263,13 @@ function render() {
             if (hasT) {
                 p.axles = C.xa.map((v, i) => ({ x: v, P: C.Pa[i], emp: C.emp[i] }));
                 if (C.q > 0) p.band = { w: C.w, q: C.q };
-                p.title = unit(C.quant).sy + SUB[C.name.slice(-3)] + ' = ' + fmt(q, C.val) +
+                p.title = u.sy + SUB[nm.slice(-3)] + ' = ' + fmt(q, C.val) +
                           ' at x = ' + C.x.toFixed(1) + ' m';
             } else {
                 p.title = 'influence line at x = ' + C.x.toFixed(1) + ' m';
             }
         }
-        Plot.panel(cv[k], p);
+        Plot.panel($('cv' + (k + 1)), p);
     }
 }
 /* the RF envelope has one row per boundary condition; only the vertical
@@ -374,7 +391,7 @@ function init() {
     const deferred = () => { msg('computing...', ''); setTimeout(() => update(true), 0); };
     ['inL', 'inEI', 'indL', 'inW', 'inShp', 'inTrain', 'inWag', 'inPhi']
         .forEach(id => $(id).addEventListener('change', deferred));
-    ['inQty', 'inPeak', 'inShow'].forEach(id => $(id).addEventListener('change', () => update(false)));
+    ['inQty', 'inShow'].forEach(id => $(id).addEventListener('change', () => update(false)));
     $('inXp').addEventListener('change', () => { setSection(nearest(+$('inXp').value)); update(false); });
 
     const cv = $('cvBeam');
