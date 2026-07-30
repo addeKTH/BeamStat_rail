@@ -1,637 +1,119 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Interactive Influence Line</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Railway bridge - static analysis</title>
 <style>
-  :root{
-    --bg:#ffffff;
-    --panel-bg:#f8f9fa;
-    --line:#212529;
-    --accent:#c0392b;
-    --beam:#adb5bd;
-    --text:#212529;
-    --muted:#6c757d;
-    --border:#dee2e6;
-    --link:#2761c9;
-  }
-  html,body{
-    margin:0; padding:0; background:var(--bg); color:var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-      "Helvetica Neue", Arial, sans-serif;
-    font-size:16px; line-height:1.6;
-  }
-  a{ color:var(--link); text-decoration:none; }
-  a:hover{ text-decoration:underline; }
-  .app{
-    max-width:820px; margin:0 auto; padding:40px 20px 32px;
-  }
-  h1{
-    font-size:1.9rem; font-weight:600; margin:0 0 1em; color:var(--text);
-    letter-spacing:-.01em; padding-bottom:.4em; border-bottom:1px solid var(--border);
-  }
-  .panel{
-    background:var(--panel-bg); border:1px solid var(--border); border-radius:4px;
-    padding:14px 16px 12px; margin-bottom:16px;
-  }
-  .row{
-    display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:9px;
-  }
-  .row label{
-    font-size:.85rem; color:var(--text); white-space:nowrap;
-  }
-  .row input[type=text]{
-    font-family: inherit; font-size:.85rem;
-    border:1px solid var(--border); border-radius:3px; padding:5px 7px;
-    background:#fff; color:var(--text);
-  }
-  .row input[type=text]:focus{
-    outline:none; border-color:var(--link); box-shadow:0 0 0 2px rgba(39,97,201,.15);
-  }
-  #L, #EI{ width:70px; }
-  #bc{ flex:1; min-width:180px; }
-  button{
-    font-size:.85rem; padding:6px 14px; border-radius:3px; border:1px solid var(--link);
-    background:#fff; cursor:pointer; color:var(--link); font-weight:500;
-  }
-  button:hover{ background:var(--link); color:#fff; }
-  .hint{
-    font-size:.75rem; color:var(--muted); margin:0 0 2px;
-  }
-  .beam-wrap{
-    background:#fff; border:1px solid var(--border); border-radius:4px; padding:12px 14px 6px;
-    margin-bottom:16px; box-sizing:border-box;
-  }
-  svg#beam{
-    width:100%; height:150px; display:block; touch-action:none;
-  }
-  .charts{
-    background:#fff; border:1px solid var(--border); border-radius:4px; padding:12px 14px 6px;
-    display:flex; flex-direction:column; gap:2px; box-sizing:border-box;
-  }
-  .chart-box{ position:relative; height:150px; }
-  .chart-box canvas{ width:100% !important; height:100% !important; }
-  .err{
-    display:none; margin-top:6px; font-size:.8rem; color:#a33; background:#fdecea;
-    border:1px solid #f1c2bd; border-radius:4px; padding:6px 8px;
-  }
-  footer{
-    text-align:left; font-size:.8rem; font-style:italic; color:var(--muted);
-    margin-top:24px; padding-top:12px; border-top:1px solid var(--border);
-  }
+  :root { --bg:#f0f0f0; --pan:#fafafa; --line:#d5d5d5; --ink:#222; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:12px; background:var(--bg); color:var(--ink);
+         font:13px/1.4 system-ui,"Segoe UI",Helvetica,Arial,sans-serif; }
+  h1 { font-size:15px; font-weight:600; margin:0 0 10px; }
+  h1 span { font-weight:400; color:#666; }
+  .wrap { max-width:900px; margin:0 auto; }
+
+  .panel { background:var(--pan); border:1px solid var(--line); border-radius:4px;
+           padding:10px 12px; margin-bottom:10px;
+           display:grid; grid-template-columns:repeat(4,1fr); gap:4px 18px; }
+  .grp { display:flex; flex-direction:column; gap:4px; }
+  .grp > b { font-size:11px; text-transform:uppercase; letter-spacing:.04em;
+             color:#555; margin-bottom:2px; }
+  .fld { display:grid; grid-template-columns:74px 1fr; align-items:center; gap:6px; }
+  .fld label { font-size:11px; color:#444; }
+  input, select, textarea { font:12px inherit; font-family:inherit; padding:2px 4px;
+           border:1px solid #bbb; border-radius:3px; background:#fff; width:100%; }
+  input:disabled, select:disabled { background:#eee; color:#999; }
+  textarea { height:52px; font-family:ui-monospace,Consolas,monospace; font-size:11px; }
+  .chk { display:flex; align-items:center; gap:6px; font-size:11px; color:#444; }
+  .chk input { width:auto; }
+
+  .bar { display:flex; align-items:center; gap:8px; grid-column:1/-1;
+         border-top:1px solid var(--line); padding-top:8px; margin-top:2px; }
+  button { font:12px inherit; padding:3px 10px; border:1px solid #bbb; border-radius:3px;
+           background:#fff; cursor:pointer; }
+  button:hover { background:#eee; }
+  #msg { font-size:11px; color:#555; }
+  #msg.warn { color:#a00; } #msg.ok { color:#070; }
+
+  .figs { background:var(--pan); border:1px solid var(--line); border-radius:4px; padding:6px 4px; }
+  canvas { display:block; width:100%; }
+  #cvBeam { height:120px; cursor:crosshair; touch-action:none; }
+  .cvp { height:130px; }
+  .hint { font-size:11px; color:#777; text-align:right; padding:0 16px 2px 0; }
+  footer { font-size:11px; color:#777; margin:10px 0 20px; }
+  code { font-family:ui-monospace,Consolas,monospace; background:#e8e8e8; padding:0 3px; border-radius:2px; }
 </style>
 </head>
 <body>
-<div class="app">
-  <h1>Interactive Influence Line</h1>
+<div class="wrap">
 
-  <div class="panel">
-    <div class="row">
-      <label for="L">L_tot (m) =</label>
-      <input type="text" id="L" value="20">
-      <label for="EI" style="margin-left:6px;">EI (GNm&sup2;) =</label>
-      <input type="text" id="EI" value="1">
-      <button id="resetBtn" style="margin-left:auto;">Reset</button>
-    </div>
-    <div class="row">
-      <label for="bc">bc =</label>
-      <input type="text" id="bc" value="[0 1;10 1;20 1]">
-    </div>
-    <div class="hint">bc = [x_pos dir; ...], dir: 1 = vert, 2 = rot. Drag the red marker on the beam to move the evaluation point.</div>
-    <div class="err" id="errBox"></div>
+<h1>Railway bridge &ndash; static analysis <span>&middot; influence lines and design train load effects</span></h1>
+
+<div class="panel">
+  <div class="grp">
+    <b>Bridge</b>
+    <div class="fld"><label>L (m)</label><input id="inL" value="24 30 24"></div>
+    <div class="fld"><label>EI (Nm²)</label><input id="inEI" value="30E9"></div>
+    <div class="fld"><label>dL (m)</label><input id="indL" value="0.2"></div>
   </div>
 
-  <div class="beam-wrap">
-    <div style="display:flex; align-items:stretch;">
-      <div style="flex:0 0 48px; width:48px;"></div>
-      <svg id="beam" xmlns="http://www.w3.org/2000/svg" style="flex:1 1 auto; min-width:0;"></svg>
-    </div>
+  <div class="grp">
+    <b>Load distribution</b>
+    <div class="fld"><label>w (m)</label><input id="inW" value="0"></div>
+    <div class="fld"><label>shape</label>
+      <select id="inShp"><option value="rect">rect</option><option value="tri">tri</option></select></div>
   </div>
 
-  <div class="charts">
-    <div class="chart-box"><canvas id="chartD"></canvas></div>
-    <div class="chart-box"><canvas id="chartM"></canvas></div>
-    <div class="chart-box"><canvas id="chartV"></canvas></div>
+  <div class="grp">
+    <b>Train</b>
+    <div class="fld"><label>model</label><select id="inTrain"></select></div>
+    <div class="fld"><label>wagons</label><input id="inWag" value="10"></div>
+    <div class="chk"><input type="checkbox" id="inPhi" checked><label for="inPhi">dynamic factor &phi;</label></div>
   </div>
 
-  <footer>Last updated 2026-07-14 </footer>
+  <div class="grp">
+    <b>Plot</b>
+    <div class="fld"><label>xp (m)</label><input id="inXp" value="39"></div>
+    <div class="fld"><label>quantity</label>
+      <select id="inQty"><option value="d">d</option><option value="r">r</option><option value="RF">RF</option></select></div>
+    <div class="fld"><label>peak</label>
+      <select id="inPeak"><option value="max">max</option><option value="min">min</option></select></div>
+    <div class="fld"><label>show</label>
+      <select id="inShow"><option value="section">section</option><option value="critical">critical</option><option value="envelope">envelope</option></select></div>
+  </div>
+
+  <div class="bar">
+    <button id="btnMax">Save max</button>
+    <button id="btnReset">Reset</button>
+    <span id="msg"></span>
+  </div>
 </div>
 
-<script>
-/* ============================================================
-   Linear algebra: dense LU with partial pivoting, factor once,
-   solve many right-hand sides (the stiffness matrix is the same
-   for every load position, so we don't need to refactor it).
-   ============================================================ */
-function luDecompose(Ain){
-  const n = Ain.length;
-  const A = new Array(n);
-  for (let i=0;i<n;i++) A[i]=Float64Array.from(Ain[i]);
-  const piv = new Int32Array(n);
-  for (let i=0;i<n;i++) piv[i]=i;
-  for (let k=0;k<n;k++){
-    let maxVal = Math.abs(A[k][k]), maxRow = k;
-    for (let i=k+1;i<n;i++){
-      const v = Math.abs(A[i][k]);
-      if (v>maxVal){ maxVal=v; maxRow=i; }
-    }
-    if (maxRow!==k){
-      const tmp=A[k]; A[k]=A[maxRow]; A[maxRow]=tmp;
-      const tp=piv[k]; piv[k]=piv[maxRow]; piv[maxRow]=tp;
-    }
-    const pivotVal = A[k][k] || 1e-300;
-    for (let i=k+1;i<n;i++){
-      const factor = A[i][k]/pivotVal;
-      A[i][k]=factor;
-      const Ai=A[i], Ak=A[k];
-      for (let j=k+1;j<n;j++) Ai[j]-=factor*Ak[j];
-    }
-  }
-  return {LU:A, piv};
-}
-function luSolve(LU, piv, b){
-  const n=LU.length;
-  const y=new Float64Array(n);
-  for (let i=0;i<n;i++){
-    let sum=b[piv[i]];
-    const Li=LU[i];
-    for (let j=0;j<i;j++) sum-=Li[j]*y[j];
-    y[i]=sum;
-  }
-  const x=new Float64Array(n);
-  for (let i=n-1;i>=0;i--){
-    let sum=y[i];
-    const Li=LU[i];
-    for (let j=i+1;j<n;j++) sum-=Li[j]*x[j];
-    x[i]=sum/Li[i];
-  }
-  return x;
-}
+<div class="figs">
+  <div class="hint">drag the marker to move the section &middot; click a support symbol to change b.c.</div>
+  <canvas id="cvBeam"></canvas>
+  <canvas id="cv1" class="cvp"></canvas>
+  <canvas id="cv2" class="cvp"></canvas>
+  <canvas id="cv3" class="cvp"></canvas>
+</div>
 
-/* ============================================================
-   InfluenceLine: direct port of InfluenceLine.m
-   inp = {L, bc:[[pos,dir,Ksup],...], xp:[..], dL, EI}
-   returns {x, d, M, V}  (each of d/M/V is EL+1 rows x length(xp) cols)
-   ============================================================ */
-function influenceLine(inp){
-  const Ltot = inp.L;
+<footer>
+  Euler&ndash;Bernoulli beam elements, exact influence lines from the element Hermite
+  polynomials. Load models of SFS 1919:193, SOU 1931:30 / 1938:37, SOU 1961:12,
+  EN 1991-2:2024 and the EN 15528 line categories, with the wagons arranged,
+  loaded, emptied and truncated wherever that is most unfavourable.
+  Ported from <code>InfluenceLine.m</code>, <code>LoadResponse.m</code>,
+  <code>TrainLoadSOU.m</code>, <code>LoadEffect.m</code>, <code>PlotBeam2D.m</code>,
+  <code>PlotLoadEffect.m</code> and <code>Main_gui_static.m</code>.
+</footer>
 
-  // --- check b.c. : keep only dir 1 or 2 (mirrors bc(~ismember(bc(:,2),[1 2]),:)=[];)
-  //     and keep only positions on the beam
-  let bc = inp.bc
-    .filter(r => [1,2].includes(r[1]) && r[0]>=0 && r[0]<=Ltot)
-    .map(r => r.length>=3 ? [r[0],r[1],r[2]] : [r[0],r[1],0]);
-
-  if (bc.length===0) throw new Error('bc has no valid rows (dir must be 1 or 2, position within [0,L]).');
-
-  // --- element size
-  let dL = Ltot/Math.round(Ltot/inp.dL);
-  const EL = Math.round(Ltot/dL);
-
-  // --- local stiffness matrix (v, phi)
-  const EI = inp.EI;
-  const k1 = 12*EI/dL**3, k2 = 6*EI/dL**2, k3 = 4*EI/dL;
-  const ke = [
-    [ k1,  k2, -k1,  k2],
-    [ k2,  k3, -k2,  k3/2],
-    [-k1, -k2,  k1, -k2],
-    [ k2,  k3/2, -k2, k3]
-  ];
-
-  // --- global K matrix (dense)
-  const ndof = 2*(EL+1);
-  const K = new Array(ndof);
-  for (let i=0;i<ndof;i++) K[i]=new Float64Array(ndof);
-  for (let e=0;e<EL;e++){
-    const edof=[2*e, 2*e+1, 2*e+2, 2*e+3];
-    for (let a=0;a<4;a++){
-      const Ka = K[edof[a]];
-      for (let b=0;b<4;b++) Ka[edof[b]] += ke[a][b];
-    }
-  }
-
-  // --- boundary conditions: fixed dofs (Ksup == 0)
-  const pdofSet = new Set();
-  for (const r of bc){
-    if (r[2]===0){
-      const dof = Math.round(2*r[0]/dL + r[1]) - 1; // 0-based
-      pdofSet.add(dof);
-    }
-  }
-  if (pdofSet.size===0) throw new Error('At least one fixed support (K=0) is required.');
-
-  // --- support stiffness: flexible dofs (Ksup > 0)
-  for (const r of bc){
-    if (r[2]>0){
-      const dof = Math.round(2*r[0]/dL + r[1]) - 1;
-      K[dof][dof] += r[2];
-    }
-  }
-
-  const pdof = Array.from(pdofSet).sort((a,b)=>a-b);
-  const fdof = [];
-  const fdofIndex = new Int32Array(ndof).fill(-1);
-  for (let i=0;i<ndof;i++){
-    if (!pdofSet.has(i)){ fdofIndex[i]=fdof.length; fdof.push(i); }
-  }
-  const nf = fdof.length;
-
-  // --- Kff submatrix + factorize once (reused for every load position)
-  const Kff = new Array(nf);
-  for (let a=0;a<nf;a++){
-    const row = new Float64Array(nf);
-    const Ka = K[fdof[a]];
-    for (let b=0;b<nf;b++) row[b]=Ka[fdof[b]];
-    Kff[a]=row;
-  }
-  const {LU, piv} = luDecompose(Kff);
-
-  // --- section-force evaluation points
-  const xp = inp.xp.map(x => dL*Math.round(x/dL));
-  const sdof0 = xp.map(x => Math.round(2*x/dL));   // 0-based v-dof
-  const xloc  = new Array(xp.length).fill(0);
-  for (let j=0;j<sdof0.length;j++){
-    if (sdof0[j] === ndof-2){        // evaluated at the very last node
-      xloc[j] = dL;
-      sdof0[j] = ndof-4;             // use previous element, local x = dL
-    }
-  }
-  const nEval = sdof0.length;
-
-  const Mz = (v1,f1,v2,f2,x)=> -EI*((-6/dL**2+12*x/dL**3)*v1 + (-4/dL+6*x/dL**2)*f1 + (6/dL**2-12*x/dL**3)*v2 + (-2/dL+6*x/dL**2)*f2);
-  const Vy = (v1,f1,v2,f2)=> -EI*((12/dL**3)*(v1-v2) + (6/dL**2)*(f1+f2));
-
-  // --- run a unit vertical load along the beam
-  const M = new Array(EL+1), V = new Array(EL+1), d = new Array(EL+1);
-  const Ff = new Float64Array(nf);
-  const Dfull = new Float64Array(ndof);
-
-  for (let i=0;i<=EL;i++){
-    const n = 2*i; // 0-based vertical dof of node i
-    Ff.fill(0);
-    const idx = fdofIndex[n];
-    if (idx>=0) Ff[idx] = -1;
-
-    const Dff = luSolve(LU, piv, Ff);
-    Dfull.fill(0);
-    for (let k=0;k<nf;k++) Dfull[fdof[k]] = Dff[k];
-
-    const Mrow=new Float64Array(nEval), Vrow=new Float64Array(nEval), drow=new Float64Array(nEval);
-    for (let j=0;j<nEval;j++){
-      const s = sdof0[j];
-      const v1=Dfull[s], f1=Dfull[s+1], v2=Dfull[s+2], f2=Dfull[s+3];
-      Mrow[j] = Mz(v1,f1,v2,f2, xloc[j]);
-      Vrow[j] = Vy(v1,f1,v2,f2);
-      drow[j] = -v1;
-    }
-    M[i]=Mrow; V[i]=Vrow; d[i]=drow;
-  }
-
-  const xOut = new Array(EL+1);
-  for (let i=0;i<=EL;i++) xOut[i]=i*dL;
-
-  return {x:xOut, d, M, V, dL, EL};
-}
-
-/* ============================================================
-   Small matlab-ish helpers: parse / format a bc matrix string
-   ============================================================ */
-function parseMatrix(str){
-  const s = str.trim().replace(/^\[/,'').replace(/\]$/,'');
-  if (!s) throw new Error('bc must not be empty.');
-  const rows = s.split(';').map(r=>r.trim()).filter(r=>r.length>0);
-  const out = rows.map(r=>{
-    const vals = r.split(/[\s,]+/).filter(v=>v.length>0).map(Number);
-    if (vals.some(v=>Number.isNaN(v))) throw new Error('bc contains a non-numeric entry.');
-    return vals;
-  });
-  const ncol = out[0].length;
-  if (ncol<2 || ncol>3) throw new Error('bc must have 2 or 3 columns.');
-  if (out.some(r=>r.length!==ncol)) throw new Error('all rows of bc must have the same number of columns.');
-  return out;
-}
-function formatMatrix(bc){
-  return '[' + bc.map(r=>r.join(' ')).join(';') + ']';
-}
-function numToStr(v){
-  return Number(v.toPrecision(10)).toString();
-}
-
-/* ============================================================
-   Application state (mirrors inp / def in Main.m)
-   ============================================================ */
-const def = {
-  L: 20,
-  bc: [[0,1],[10,1],[20,1]],
-  xp: 20/3,
-  EI: 1e9
-};
-const inp = { L: def.L, bc: def.bc.map(r=>r.slice()), xp: def.xp, dL: def.L/100, EI: def.EI };
-
-let dragging = false;
-let out = null;
-
-/* ============================================================
-   DOM references
-   ============================================================ */
-const hL = document.getElementById('L');
-const hEI = document.getElementById('EI');
-const hbc = document.getElementById('bc');
-const resetBtn = document.getElementById('resetBtn');
-const errBox = document.getElementById('errBox');
-const svg = document.getElementById('beam');
-
-hL.value = numToStr(def.L);
-hEI.value = (def.EI/1e9).toFixed(1);
-hbc.value = formatMatrix(def.bc);
-
-/* ============================================================
-   Charts (i_d, i_M, i_V)
-   ============================================================ */
-function makeChart(ctx, label, color){
-  return new Chart(ctx, {
-    type:'line',
-    data:{ labels:[], datasets:[{
-      label:label, data:[], borderColor:color, backgroundColor:color,
-      borderWidth:2, pointRadius:0, tension:0
-    }]},
-    options:{
-      animation:false, responsive:true, maintainAspectRatio:false,
-      layout:{ padding:{left:0, right:0, top:0, bottom:0} },
-      interaction:{mode:'nearest', intersect:false},
-      plugins:{ legend:{display:false}, title:{display:true, text:label, font:{size:12, family:"-apple-system, Segoe UI, sans-serif"}} },
-      scales:{
-        x:{ type:'linear', title:{display:false}, grid:{color:'#eee'}, ticks:{font:{family:"-apple-system, Segoe UI, sans-serif"}} },
-        y:{
-          grid:{color:'#eee'}, ticks:{font:{family:"-apple-system, Segoe UI, sans-serif"}},
-          afterFit: (axis)=>{ axis.width = 48; } // fixed width -> all three charts line up exactly
-        }
-      }
-    }
-  });
-}
-const chartD = makeChart(document.getElementById('chartD'), 'i_d  (displacement)', '#2c3e50');
-const chartM = makeChart(document.getElementById('chartM'), 'i_M  (bending moment)', '#2980b9');
-const chartV = makeChart(document.getElementById('chartV'), 'i_V  (shear force)', '#c0392b');
-chartV.options.scales.x.title = {display:true, text:'x (m)', font:{family:"-apple-system, Segoe UI, sans-serif"}};
-chartV.update();
-
-function updateCharts(){
-  const pts = (arr)=> out.x.map((xi,i)=>({x:xi, y:arr[i][0]}));
-  chartD.data.datasets[0].data = pts(out.d.map(r=>[-r[0]])); // matlab plots -d
-  chartM.data.datasets[0].data = pts(out.M);
-  chartV.data.datasets[0].data = pts(out.V);
-  [chartD, chartM, chartV].forEach(c=>{
-    c.options.scales.x.min = -0.02*inp.L;
-    c.options.scales.x.max = 1.02*inp.L;
-    c.update('none');
-  });
-}
-
-/* ============================================================
-   Beam sketch (SVG) - mirrors drawBeamAxis() in Main.m
-   matlab y is "up positive"; svg y grows downward, so we flip sign
-   ============================================================ */
-function Y(v){ return -v; }
-
-function svgEl(tag, attrs){
-  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
-  for (const k in attrs) el.setAttribute(k, attrs[k]);
-  return el;
-}
-
-function drawBeamAxis(){
-  const L = inp.L;
-  svg.innerHTML = '';
-  const vbX0 = -0.02*L, vbX1 = 1.02*L;
-  const vbY0 = -0.07*L, vbY1 = 0.14*L;
-  svg.setAttribute('viewBox', `${vbX0} ${vbY0} ${vbX1-vbX0} ${vbY1-vbY0}`);
-  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-
-  // beam line
-  svg.appendChild(svgEl('line', {
-    x1:0, y1:Y(0), x2:L, y2:Y(0), stroke:'#999', 'stroke-width':L*0.006, 'stroke-linecap':'round'
-  }));
-
-  // supports
-  const positions = [...new Set(inp.bc.map(r=>r[0]))].sort((a,b)=>a-b);
-  for (const pos of positions){
-    const dirs = inp.bc.filter(r=>r[0]===pos).map(r=>r[1]);
-    const hasVert = dirs.includes(1);
-    const hasRot  = dirs.includes(2);
-    if (hasVert && hasRot){
-      // clamped
-      svg.appendChild(svgEl('line', {
-        x1:pos, y1:Y(-0.03*L), x2:pos, y2:Y(0.03*L), stroke:'#000', 'stroke-width':L*0.004
-      }));
-    } else if (hasVert){
-      // pinned: dot + triangle
-      svg.appendChild(svgEl('circle', {cx:pos, cy:Y(0), r:L*0.006, fill:'#000'}));
-      const pts = [
-        [pos-0.02*L, Y(-0.03*L)],
-        [pos+0.02*L, Y(-0.03*L)],
-        [pos, Y(0)]
-      ].map(p=>p.join(',')).join(' ');
-      svg.appendChild(svgEl('polygon', {points:pts, fill:'none', stroke:'#000', 'stroke-width':L*0.003}));
-    } else if (hasRot){
-      // rotation fixed: vertical line + two circles
-      svg.appendChild(svgEl('line', {
-        x1:pos, y1:Y(-0.03*L), x2:pos, y2:Y(0.03*L), stroke:'#000', 'stroke-width':L*0.004
-      }));
-      const r = 0.01*L;
-      const cx = (pos===L) ? pos + r : pos - r;
-      svg.appendChild(svgEl('circle', {cx:cx, cy:Y(-1.5*r), r:r, fill:'none', stroke:'#000', 'stroke-width':L*0.003}));
-      svg.appendChild(svgEl('circle', {cx:cx, cy:Y(1.5*r), r:r, fill:'none', stroke:'#000', 'stroke-width':L*0.003}));
-    }
-  }
-
-  // dimension line
-  const dimPos = [...new Set([0, ...positions, L])].sort((a,b)=>a-b);
-  svg.appendChild(svgEl('line', {
-    x1:0, y1:Y(-0.1*L), x2:L, y2:Y(-0.1*L), stroke:'#000', 'stroke-width':L*0.0015
-  }));
-  for (const p of dimPos){
-    // long tick, matches plot([1 1]*pos(i),[-0.8 2]*0.02*L-0.1*L,'k')
-    svg.appendChild(svgEl('line', {
-      x1:p, y1:Y(-0.116*L), x2:p, y2:Y(-0.06*L), stroke:'#000', 'stroke-width':L*0.0015
-    }));
-    // diagonal tick, matches plot(pos(i)+[-1 1]*0.015*L,[-1 1]*0.015*L-0.1*L,'k')
-    svg.appendChild(svgEl('line', {
-      x1:p-0.015*L, y1:Y(-0.115*L), x2:p+0.015*L, y2:Y(-0.085*L), stroke:'#000', 'stroke-width':L*0.0015
-    }));
-  }
-  for (let i=0;i<dimPos.length-1;i++){
-    const Li = dimPos[i+1]-dimPos[i];
-    const t = svgEl('text', {
-      x: dimPos[i] + 0.4*Li, y: Y(-0.08*L), 'font-size': L*0.028, fill:'#333',
-      'font-family':'-apple-system,Segoe UI,sans-serif'
-    });
-    t.textContent = Li.toFixed(1);
-    svg.appendChild(t);
-  }
-
-  // draggable load / evaluation-point marker, drawn as a plain asterisk (like matlab's 'r*')
-  const marker = svgEl('text', {
-    id:'marker', x:inp.xp, y:Y(0), 'text-anchor':'middle', 'dominant-baseline':'central',
-    dy:'0.08em',
-    'font-size': L*0.045, fill:'#c0392b', 'font-family':'-apple-system,Segoe UI,sans-serif',
-    'font-weight':'700', style:'cursor:grab'
-  });
-  marker.textContent = '*';
-  svg.appendChild(marker);
-  const label = svgEl('text', {
-    id:'markerLabel', x:inp.xp, y:Y(0.045*L), 'text-anchor':'middle',
-    'font-size': L*0.03, fill:'#c0392b', 'font-family':'-apple-system,Segoe UI,sans-serif'
-  });
-  label.textContent = inp.xp.toFixed(2)+' m';
-  svg.appendChild(label);
-}
-
-function updateMarker(){
-  document.getElementById('marker').setAttribute('x', inp.xp);
-  const label = document.getElementById('markerLabel');
-  label.setAttribute('x', inp.xp);
-  label.textContent = inp.xp.toFixed(2)+' m';
-}
-
-/* ============================================================
-   Recompute + redraw
-   ============================================================ */
-function recompute(){
-  out = influenceLine({L:inp.L, bc:inp.bc, xp:[inp.xp], dL:inp.dL, EI:inp.EI});
-  updateCharts();
-}
-
-// y-axis ranges are fixed from an initial analysis with the evaluation
-// point stepped over every node (inp.xp = 0:inp.dL:inp.L), so the plots
-// don't rescale every time the marker is dragged - only when L, EI or bc change.
-function rangeWithPadding(values){
-  let mn=Infinity, mx=-Infinity;
-  for (const v of values){ if (v<mn) mn=v; if (v>mx) mx=v; }
-  if (!isFinite(mn) || !isFinite(mx)) return [-1,1];
-  if (mx-mn < 1e-12){
-    const pad = Math.max(Math.abs(mx),1)*0.1 || 1;
-    return [mn-pad, mx+pad];
-  }
-  const pad = 0.08*(mx-mn);
-  return [mn-pad, mx+pad];
-}
-
-function computeScales(){
-  const xpFull = [];
-  for (let i=0;i<=Math.round(inp.L/inp.dL);i++) xpFull.push(i*inp.dL);
-  const full = influenceLine({L:inp.L, bc:inp.bc, xp:xpFull, dL:inp.dL, EI:inp.EI});
-  const dVals=[], mVals=[], vVals=[];
-  for (const row of full.d) for (const v of row) dVals.push(-v);
-  for (const row of full.M) for (const v of row) mVals.push(v);
-  for (const row of full.V) for (const v of row) vVals.push(v);
-  return { d: rangeWithPadding(dVals), M: rangeWithPadding(mVals), V: rangeWithPadding(vVals) };
-}
-
-function applyScales(scales){
-  chartD.options.scales.y.min = scales.d[0]; chartD.options.scales.y.max = scales.d[1];
-  chartM.options.scales.y.min = scales.M[0]; chartM.options.scales.y.max = scales.M[1];
-  chartV.options.scales.y.min = scales.V[0]; chartV.options.scales.y.max = scales.V[1];
-}
-
-function fullRedraw(){
-  drawBeamAxis();
-  applyScales(computeScales());
-  recompute();
-}
-
-/* ============================================================
-   Input panel handlers (mirrors updateInputs / resetInputs)
-   ============================================================ */
-function showError(msg){
-  errBox.textContent = 'Invalid input: '+msg;
-  errBox.style.display = 'block';
-}
-function clearError(){
-  errBox.style.display = 'none';
-}
-
-function updateInputs(){
-  try{
-    const newL = parseFloat(hL.value);
-    const newEI = parseFloat(hEI.value);
-    const newbc = parseMatrix(hbc.value);
-
-    if (!isFinite(newL) || newL<=0) throw new Error('L_tot must be a positive number.');
-    if (!isFinite(newEI) || newEI<=0) throw new Error('EI must be a positive number.');
-
-    inp.L = newL;
-    inp.EI = newEI*1e9;
-    inp.bc = newbc;
-    inp.dL = inp.L/200;
-    inp.xp = Math.max(0, Math.min(inp.xp, inp.L));
-
-    hEI.value = (inp.EI/1e9).toFixed(1);
-    fullRedraw();
-    clearError();
-  } catch(e){
-    hL.value = numToStr(inp.L);
-    hEI.value = (inp.EI/1e9).toFixed(1);
-    hbc.value = formatMatrix(inp.bc);
-    showError(e.message);
-  }
-}
-
-function resetInputs(){
-  hL.value = numToStr(def.L);
-  hEI.value = (def.EI/1e9).toFixed(1);
-  hbc.value = formatMatrix(def.bc);
-  inp.xp = def.xp;
-  updateInputs();
-}
-
-hL.addEventListener('change', updateInputs);
-hEI.addEventListener('change', updateInputs);
-hbc.addEventListener('change', updateInputs);
-resetBtn.addEventListener('click', resetInputs);
-
-/* ============================================================
-   Dragging the evaluation-point marker
-   ============================================================ */
-function svgPointFromEvent(evt){
-  const pt = svg.createSVGPoint();
-  const t = evt.touches ? evt.touches[0] : evt;
-  pt.x = t.clientX; pt.y = t.clientY;
-  const ctm = svg.getScreenCTM().inverse();
-  return pt.matrixTransform(ctm);
-}
-
-function startDrag(evt){
-  const p = svgPointFromEvent(evt);
-  if (Math.abs(p.x - inp.xp) < inp.L/25){
-    dragging = true;
-    evt.preventDefault();
-  }
-}
-function stopDrag(){ dragging = false; }
-function moveDrag(evt){
-  if (!dragging) return;
-  const p = svgPointFromEvent(evt);
-  let xp = Math.max(0, Math.min(inp.L, p.x));
-  inp.xp = xp;
-  updateMarker();
-  recompute();
-  evt.preventDefault();
-}
-
-svg.addEventListener('mousedown', startDrag);
-window.addEventListener('mousemove', moveDrag);
-window.addEventListener('mouseup', stopDrag);
-svg.addEventListener('touchstart', startDrag, {passive:false});
-window.addEventListener('touchmove', moveDrag, {passive:false});
-window.addEventListener('touchend', stopDrag);
-
-/* ============================================================
-   Initial run
-   ============================================================ */
-fullRedraw();
-</script>
+</div>
+<script src="beam.js"></script>
+<script src="trains.js"></script>
+<script src="loadeffect.js"></script>
+<script src="plot.js"></script>
+<script src="xlsx.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
