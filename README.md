@@ -23,8 +23,7 @@ Print writes a PDF file directly, with one bookmark per page, named `load_effect
 `LM71_load_effect.pdf` for one train. Chrome and Edge give a Save-as dialog, other browsers and
 embedded browsers a download.
 
-Test: `test/run_web_cases.m` in MATLAB writes `web_ref.js`, `test/compare_web.html` compares
-(served over http). When a file changes, raise `?v=` in `index.html`, `app.js` (VER) and
+When a file changes, raise `?v=` in `index.html`, `app.js` (VER) and
 `solver.worker.js`, and "Last modified" in `index.html`.
 
 ## Disclaimer
