@@ -9,7 +9,7 @@
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
-const VER = '2026-11-02m';
+const VER = '2026-11-02n';
 
 // ---------------------------------------------------------- default input
 const def = { L: '20 20', EI: '35E9', dL: '0.1', bQType: '1-point', bQLast: '1-point', b_Q: '3.0',
