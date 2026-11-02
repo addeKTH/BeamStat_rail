@@ -1,110 +1,140 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Railway bridge - static analysis</title>
+<meta name="viewport" content="width=600">
+<title>Railway bridge static load effects</title>
+<!--
+  Railway bridge static load effects: web version of Main_gui.m / BeamStat2D.m
+  (multi-span 2D Bernoulli-Euler beam, influence lines, design trains of the Swedish
+  codes, EN 1991-2, EN 15528 and TRVINFRA-00331).  Layout as the MATLAB figure, 560 x 868 px.
+  Andreas Andersson, 2026-11-02 (assisted by Claude)
+-->
 <style>
-  :root { --bg:#f0f0f0; --pan:#fafafa; --line:#d5d5d5; --ink:#222; }
-  * { box-sizing: border-box; }
-  body { margin:0; padding:12px; background:var(--bg); color:var(--ink);
-         font:13px/1.4 system-ui,"Segoe UI",Helvetica,Arial,sans-serif; }
-  h1 { font-size:15px; font-weight:600; margin:0 0 10px; }
-  h1 span { font-weight:400; color:#666; }
-  .wrap { max-width:900px; margin:0 auto; }
-
-  .panel { background:var(--pan); border:1px solid var(--line); border-radius:4px;
-           padding:10px 12px; margin-bottom:10px;
-           display:grid; grid-template-columns:repeat(4,1fr); gap:4px 18px; }
-  .grp { display:flex; flex-direction:column; gap:4px; }
-  .grp > b { font-size:11px; text-transform:uppercase; letter-spacing:.04em;
-             color:#555; margin-bottom:2px; }
-  .fld { display:grid; grid-template-columns:74px 1fr; align-items:center; gap:6px; }
-  .fld label { font-size:11px; color:#444; }
-  input, select, textarea { font:12px inherit; font-family:inherit; padding:2px 4px;
-           border:1px solid #bbb; border-radius:3px; background:#fff; width:100%; }
-  input:disabled, select:disabled { background:#eee; color:#999; }
-  textarea { height:52px; font-family:ui-monospace,Consolas,monospace; font-size:11px; }
-  .chk { display:flex; align-items:center; gap:6px; font-size:11px; color:#444; }
-  .chk input { width:auto; }
-
-  .bar { display:flex; align-items:center; gap:8px; grid-column:1/-1;
-         border-top:1px solid var(--line); padding-top:8px; margin-top:2px; }
-  button { font:12px inherit; padding:3px 10px; border:1px solid #bbb; border-radius:3px;
-           background:#fff; cursor:pointer; }
-  button:hover { background:#eee; }
-  #msg { font-size:11px; color:#555; }
-  #msg.warn { color:#a00; } #msg.ok { color:#070; }
-
-  .figs { background:var(--pan); border:1px solid var(--line); border-radius:4px; padding:6px 4px; }
-  canvas { display:block; width:100%; }
-  #cvBeam { height:120px; cursor:crosshair; touch-action:none; }
-  .cvp { height:130px; }
-  .hint { font-size:11px; color:#777; text-align:right; padding:0 16px 2px 0; }
-  footer { font-size:11px; color:#777; margin:10px 0 20px; }
-  code { font-family:ui-monospace,Consolas,monospace; background:#e8e8e8; padding:0 3px; border-radius:2px; }
+  :root { --bg: #f0f0f0; --line: #bfbfbf; --grey: #4d4d4d; }
+  html, body { margin: 0; background: #e4e4e4; }
+  body { font: 12px "Segoe UI", system-ui, sans-serif; color: #000; }
+  #title { text-align: center; font-size: 20px; font-weight: 600; margin: 14px 0 0 0; }
+  #foot { text-align: center; padding: 6px 0 14px; font-size: 12px; color: #666; }
+  #fig { position: relative; width: 560px; height: 868px; margin: 10px auto; background: var(--bg);
+         box-shadow: 0 0 0 1px #c8c8c8; user-select: none; }
+  .abs { position: absolute; }
+  .line { position: absolute; height: 1px; background: var(--line); }
+  .hdr { position: absolute; font-weight: bold; font-size: 14px; }
+  .sym { position: absolute; cursor: pointer; }
+  .sym svg { width: 100%; height: 100%; display: block; }
+  .sym.off { opacity: 0.3; cursor: default; }
+  #pbar { position: absolute; left: 186px; top: 18px; width: 120px; height: 14px; box-sizing: border-box;
+          border: 1px solid #999; background: #fff; }
+  #pfill { height: 100%; width: 0; background: #21963f; }
+  #pct { position: absolute; left: 318px; top: 17px; width: 40px; font-size: 11px; color: var(--grey); }
+  #msg { position: absolute; left: 370px; top: 10px; width: 180px; height: 32px; font-size: 11px; color: var(--grey);
+         display: flex; align-items: center; justify-content: flex-end; text-align: right; line-height: 1.15; }
+  .lbl { position: absolute; width: 64px; height: 22px; line-height: 22px; text-align: right;
+         font: 12.7px "Times New Roman", Times, serif; white-space: nowrap; }
+  input.f, select.f { position: absolute; height: 22px; box-sizing: border-box; font: 12px "Segoe UI", system-ui, sans-serif;
+                      border: 1px solid #7a7a7a; padding: 0 3px; background: #fff; }
+  select.f { padding: 0 1px; }
+  input.f.auto { color: #808080; }
+  input.f.ro { cursor: default; }
+  .mbtn { position: absolute; width: 18px; height: 22px; box-sizing: border-box; border: 1px solid #7a7a7a; border-left: 0;
+          background: #fff; font-size: 8px; line-height: 20px; text-align: center; cursor: pointer; }
+  .menu { position: absolute; z-index: 20; background: #fff; border: 1px solid #a0a0a0; box-shadow: 2px 2px 6px rgba(0,0,0,.25);
+          padding: 3px 0; font-size: 12px; display: none; }
+  .menu div { padding: 3px 18px 3px 24px; white-space: pre; cursor: default; position: relative; }
+  .menu div:hover { background: #cce4f7; }
+  .menu div.chk::before { content: '\2713'; position: absolute; left: 7px; }
+  .menu hr { border: 0; border-top: 1px solid #d0d0d0; margin: 3px 0; }
+  #mTrain { width: 196px; height: 370px; padding: 0; box-sizing: border-box; }
+  #mTrain label { position: absolute; height: 17px; line-height: 17px; white-space: nowrap; }
+  #mTrain input { margin: 0 4px 0 0; vertical-align: -2px; }
+  #mTrain label.b { font-weight: bold; }
+  #mTrain button { position: absolute; right: 6px; bottom: 5px; width: 54px; height: 20px; font: 12px "Segoe UI", system-ui, sans-serif; }
+  .tick { position: absolute; margin: 0; width: 13px; height: 13px; }
+  .tlbl { position: absolute; height: 20px; line-height: 20px; font: 14.7px "Times New Roman", Times, serif; white-space: nowrap; }
+  #dynT { position: absolute; left: 58px; top: 192px; width: 490px; height: 22px; line-height: 22px;
+          font: 14.7px "Times New Roman", Times, serif; white-space: nowrap; }
+  #tip { position: absolute; z-index: 30; display: none; background: #ffffe0; color: #262626; font-size: 11px;
+         padding: 1px 4px; border: 1px solid #c8c8a0; white-space: nowrap; pointer-events: none; }
+  #fig.busy input, #fig.busy select, #fig.busy .mbtn, #fig.busy .tick, #fig.busy #model { pointer-events: none; }
+  #supsel { position: absolute; z-index: 25; font-size: 12px; }
+  #dlg { position: absolute; z-index: 40; left: 90px; top: 300px; width: 380px; display: none; background: #fff;
+         border: 1px solid #a0a0a0; box-shadow: 2px 2px 8px rgba(0,0,0,.3); padding: 14px; box-sizing: border-box; }
+  #dlg p { margin: 0 0 12px; }
+  #dlg div { text-align: right; }
+  #dlg button { font: 12px "Segoe UI", system-ui, sans-serif; margin-left: 6px; padding: 2px 10px; }
 </style>
 </head>
 <body>
-<div class="wrap">
+<h1 id="title">Railway Bridge Static Load Effects, 2D</h1>
+<div id="fig">
+  <!-- symbol bar -->
+  <div class="sym" id="sRun" style="left:11px;  top:10px; width:30px; height:30px"></div>
+  <div class="sym" id="sRst" style="left:55px;  top:10px; width:30px; height:30px"></div>
+  <div class="sym" id="sExp" style="left:99px;  top:10px; width:30px; height:30px"></div>
+  <div class="sym" id="sRep" style="left:143px; top:10px; width:30px; height:30px"></div>
+  <div id="pbar"><div id="pfill"></div></div>
+  <div id="pct"></div>
+  <div id="msg"></div>
+  <div class="line" style="left:10px; top:47px; width:540px"></div>
 
-<h1>Railway bridge &ndash; static analysis <span>&middot; influence lines and design train load effects</span></h1>
+  <!-- input -->
+  <div class="hdr" style="left:10px; top:56px">Input</div>
+  <div class="line" style="left:10px; top:75px; width:540px"></div>
 
-<div class="panel">
-  <div class="grp">
-    <b>Bridge</b>
-    <div class="fld"><label>L (m)</label><input id="inL" value="24 30 24"></div>
-    <div class="fld"><label>EI (Nm²)</label><input id="inEI" value="30E9"></div>
-    <div class="fld"><label>dL (m)</label><input id="indL" value="0.2"></div>
-  </div>
+  <div class="lbl" style="left:14px; top:86px"><i>L</i> (m)</div>
+  <input class="f" id="iL"  style="left:82px; top:86px; width:80px" title="Span lengths">
+  <div class="lbl" style="left:14px; top:112px"><i>EI</i> (Nm<sup>2</sup>)</div>
+  <input class="f" id="iEI" style="left:82px; top:112px; width:80px" title="Flexural rigidity, one value or one per span">
+  <div class="lbl" style="left:14px; top:138px">d<i>L</i> (m)</div>
+  <input class="f" id="idL" style="left:82px; top:138px; width:80px">
 
-  <div class="grp">
-    <b>Load distribution</b>
-    <div class="fld"><label>w (m)</label><input id="inW" value="0"></div>
-    <div class="fld"><label>shape</label>
-      <select id="inShp"><option value="rect">rect</option><option value="tri">tri</option></select></div>
-  </div>
+  <div class="lbl" style="left:170px; top:86px">Train</div>
+  <input class="f ro" id="iLoad" readonly style="left:238px; top:86px; width:76px">
+  <div class="mbtn" id="bLoad" style="left:314px; top:86px" title="Tick the train load models">&#9660;</div>
+  <div class="lbl" style="left:170px; top:112px"><i>b</i><sub>Q</sub> (m)</div>
+  <input class="f" id="ibQ" style="left:238px; top:112px; width:76px">
+  <div class="mbtn" id="bbQ" style="left:314px; top:112px" title="Load distribution of each axle">&#9660;</div>
+  <div class="lbl" id="lAlpha" style="left:170px; top:138px"><i>α</i></div>
+  <input class="f" id="iAlpha" style="left:238px; top:138px; width:76px" title="Load classification factor on LM71">
 
-  <div class="grp">
-    <b>Train</b>
-    <div class="fld"><label>model</label><select id="inTrain"></select></div>
-    <div class="fld"><label>wagons</label><input id="inWag" value="10"></div>
-    <div class="chk"><input type="checkbox" id="inPhi" checked><label for="inPhi">dynamic factor &phi;</label></div>
-  </div>
+  <div class="lbl" style="left:326px; top:86px">Show</div>
+  <select class="f" id="iShw" style="left:394px; top:86px; width:80px; font-size:11px"
+          title="Section: at x_p.  Critical: where each effect is largest.  Envelope: max and min along the beam"></select>
+  <div class="lbl" style="left:326px; top:112px"><i>x</i><sub>p</sub> (m)</div>
+  <input class="f" id="iXp" style="left:394px; top:112px; width:80px" title="Section position; or drag the marker in the sketch">
+  <div class="lbl" id="lV" style="left:326px; top:138px"><i>v</i> (km/h)</div>
+  <input class="f" id="iV" style="left:394px; top:138px; width:80px" title="Train speed for the dynamic factor">
 
-  <div class="grp">
-    <b>Plot</b>
-    <div class="fld"><label>xp (m)</label><input id="inXp" value="39"></div>
-    <div class="fld"><label>quantity</label>
-      <select id="inQty"><option value="d">d</option><option value="r">r</option><option value="RF">RF</option></select></div>
-    <div class="fld"><label>show</label>
-      <select id="inShow"><option value="section">section</option><option value="critical">critical</option><option value="envelope">envelope</option></select></div>
-  </div>
+  <!-- model -->
+  <div class="hdr" style="left:10px; top:170px">Model</div>
+  <div class="line" style="left:10px; top:189px; width:540px"></div>
+  <div id="dynT"></div>
+  <svg id="model" class="abs" style="left:10px; top:214px" width="548" height="95"></svg>
 
-  <div class="bar">
-    <button id="btnMax">Save max</button>
-    <button id="btnReset">Reset</button>
-    <span id="msg"></span>
-  </div>
+  <!-- results -->
+  <div class="hdr" style="left:10px; top:316px">Results</div>
+  <div class="line" style="left:10px; top:335px; width:540px"></div>
+  <svg id="res" class="abs" style="left:10px; top:338px" width="472" height="520"></svg>
+  <input type="checkbox" class="tick" id="tPhi" style="left:487px; top:351px" checked title="apply the dynamic factor of the code (not on d and rotation)">
+  <div class="tlbl" id="lPhi" style="left:504px; top:348px"><i>Φ</i></div>
+  <input type="checkbox" class="tick" id="tD" style="left:487px; top:699px" checked>
+  <div class="tlbl" style="left:504px; top:696px"><i>d</i><sub>max</sub></div>
+  <input type="checkbox" class="tick" id="tR" style="left:487px; top:723px">
+  <div class="tlbl" style="left:504px; top:720px"><i>ϕ</i><sub>max</sub></div>
+  <input type="checkbox" class="tick" id="tF" style="left:487px; top:747px">
+  <div class="tlbl" style="left:504px; top:744px"><i>R</i><sub>max</sub></div>
+
+  <div class="menu" id="mBQ"></div>
+  <div class="menu" id="mTrain"></div>
+  <div id="dlg"></div>
+  <div id="tip"></div>
 </div>
-
-<div class="figs">
-  <div class="hint">drag the marker to move the section &middot; click a support symbol to change b.c.</div>
-  <canvas id="cvBeam"></canvas>
-  <canvas id="cv1" class="cvp"></canvas>
-  <canvas id="cv2" class="cvp"></canvas>
-  <canvas id="cv3" class="cvp"></canvas>
-  <canvas id="cv4" class="cvp"></canvas>
-</div>
-
-<footer>Last updated 2026-07-30 </footer>
-
-</div>
-<script src="beam.js"></script>
-<script src="trains.js"></script>
-<script src="loadeffect.js"></script>
-<script src="plot.js"></script>
-<script src="xlsx.js"></script>
-<script src="app.js"></script>
+<div id="foot">Last modified 2026-11-02</div>
+<script src="beamstat2d.js?v=2026-11-02l"></script>
+<script src="plot.js?v=2026-11-02l"></script>
+<script src="xlsx.js?v=2026-11-02l"></script>
+<script src="pdf.js?v=2026-11-02l"></script>
+<script src="app.js?v=2026-11-02l"></script>
 </body>
 </html>
