@@ -13,15 +13,13 @@ Bernoulli-Euler beam, and the load effects of the design trains of the Swedish c
 | `solver.worker.js` | Web Worker, one train per job |
 | `plot.js` | SVG plots and a LaTeX subset for the labels |
 | `xlsx.js` | Excel writer |
-| `pdf.js` | PDF writer for the report: vector figures, standard fonts, bookmarks |
 
 The analysis of six or more new trains runs in Web Workers (up to 16). All 36 trains
 at dL 0.1 m take about 0.2 s against 1.4 s in the page, at dL 0.02 m 0.5 s against 5 s.
 Fewer trains, and a page opened from `file://`, run in the page.
 
-Print writes a PDF file directly, with one bookmark per page, named `load_effect.pdf`, or
-`LM71_load_effect.pdf` for one train. Chrome and Edge give a Save-as dialog, other browsers and
-embedded browsers a download.
+Print opens the browser's print preview: choose Save as PDF. The date and the page numbers
+"N (M)" need Chrome or Edge 131 or newer.
 
 When a file changes, raise `?v=` in `index.html`, `app.js` (VER) and
 `solver.worker.js`, and "Last modified" in `index.html`.

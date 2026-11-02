@@ -2,14 +2,14 @@
    Railway bridge static load effects, web version of Main_gui.m (2026-11-02):
    input, sketch and analysis of the ticked trains on every change (Web Workers from
    six trains), Section / Critical / Envelope, Run (Cancel after 5 s), Reset, Export
-   (xlsx), Print (report, a PDF file with bookmarks, pdf.js).
+   (xlsx), Print (report by browser print to PDF).
 
    Andreas Andersson, 2026-11-02 (assisted by Claude)
 ---------------------------------------------------------------------------*/
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
-const VER = '2026-11-02n';
+const VER = '2026-11-02o';
 
 // ---------------------------------------------------------- default input
 const def = { L: '20 20', EI: '35E9', dL: '0.1', bQType: '1-point', bQLast: '1-point', b_Q: '3.0',
@@ -835,8 +835,8 @@ function updatePlots() {
 // Chrome, Edge: a Save-as dialog, opened first (it needs the click); embedded browsers
 // (Electron apps) open the dialog but write an empty file, so they get a plain download.
 // null = cancelled.  A write that fails downloads the file, without a second dialog.
-const TYPES = { xlsx: ['Excel workbook', { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] }],
-                pdf: ['PDF report', { 'application/pdf': ['.pdf'] }] };
+const TYPES = { xlsx: ['Excel workbook', { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] }]
+};
 async function pickFile(name, kind) {
     if (window.__saveHook) return { name };
     const embedded = /Electron|Claude\//.test(navigator.userAgent);
@@ -929,6 +929,62 @@ async function onExport() {
 const isOnlyLM71 = () => sel.length === 1 && sel[0] === 'LM71';
 
 // ============================================================ print
+// an A4 page in a hidden frame, printed with the browser (Save as PDF); page margin boxes
+// for the date (top right) and the page number "N (M)"
+function printHTML(title, body) {
+    const today = new Date().toISOString().slice(0, 10);
+    const css = `@page { size: A4; margin: 25mm 25mm 25mm 25mm;
+        @top-right { content: "${today}"; font: 11pt "Times New Roman", Times, serif; }
+        @bottom-center { content: counter(page) " (" counter(pages) ")"; font: 11pt "Times New Roman", Times, serif; } }
+      body { margin: 0; font: 11pt/1.3 "Times New Roman", Times, serif; color: #000; }
+      h1 { font-size: 16pt; font-weight: normal; margin: 0 0 6pt; }
+      h2 { font-size: 14pt; margin: 14pt 0 4pt; }
+      p { margin: 0 0 6pt; text-align: justify; hyphens: auto; }
+      table { border-collapse: collapse; margin: 4pt auto 10pt; }
+      caption { caption-side: top; padding-bottom: 6pt; }
+      th, td { padding: 1pt 7pt; text-align: left; font-weight: normal; }
+      td.r, th.r { text-align: right; } td.c, th.c { text-align: center; }
+      table.long td { padding-top: 0.5pt; padding-bottom: 0.5pt; line-height: 1.2; }
+      thead tr { border-top: 0.8pt solid #000; border-bottom: 0.8pt solid #000; }
+      tbody tr:last-child { border-bottom: 0.8pt solid #000; }
+      figure { margin: 6pt 0 10pt; text-align: center; break-inside: avoid; }
+      figcaption { margin-top: 6pt; }
+      .np { break-before: page; }
+      svg { display: block; margin: 0 auto; }`;
+    const fr = document.createElement('iframe');
+    fr.style.cssText = 'position:fixed; right:0; bottom:0; width:0; height:0; border:0';
+    document.body.appendChild(fr);
+    const doc = fr.contentDocument;
+    doc.open();
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>${css}</style></head><body>${body}</body></html>`);
+    doc.close();
+    if (window.__printHook) { window.__printHook(fr, title); return; }
+    const t0 = document.title;
+    document.title = title;
+    setTimeout(() => {
+        fr.contentWindow.focus(); fr.contentWindow.print();
+        document.title = t0;
+        setTimeout(() => fr.remove(), 1000);
+    }, 300);
+}
+// the report as HTML: headings, paragraphs and table cells in the LaTeX subset of plot.js
+class ReportDoc {
+    constructor() { this.b = ''; this.nt = 0; this.nf = 0; }
+    h1(s) { this.b += `<h1>${PL.texHTML(s)}</h1>`; }
+    h2(s, opt) { this.b += `<h2${opt && opt.newPage ? ' class="np"' : ''}>${PL.texHTML(s)}</h2>`; }
+    p(s) { this.b += `<p>${PL.texHTML(s)}</p>`; }
+    table(cap, head, rows, al) {
+        const cell = (t, c, i) => `<${t} class="${al[i]}">${PL.texHTML(String(c))}</${t}>`;
+        this.b += `<table${rows.length > 25 ? ' class="long"' : ''}><caption>Table ${++this.nt}:&ensp;${PL.texHTML(cap)}</caption>` +
+                  `<thead><tr>${head.map((c, i) => cell('th', c, i)).join('')}</tr></thead>` +
+                  `<tbody>${rows.map(r => `<tr>${r.map((c, i) => cell('td', c, i)).join('')}</tr>`).join('')}</tbody></table>`;
+    }
+    figure(svg, cap) {
+        const vb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
+        svg.setAttribute('width', '160mm'); svg.setAttribute('height', (160 * vb[3] / vb[2]).toFixed(1) + 'mm');
+        this.b += `<figure>${svg.outerHTML}<figcaption>Figure ${++this.nf}:&ensp;${PL.texHTML(cap)}</figcaption></figure>`;
+    }
+}
 // several trains: with a page per train, or only the model and the results table
 function askReport() {
     return new Promise(resolve => {
@@ -1062,31 +1118,27 @@ async function onReport() {
         if (a === 'Cancel') return;
         full = a === 'Full report';
     }
-    const f = await pickFile(allN.length === 1 ? `${allN[0].replace('/', '')}_load_effect.pdf` : 'load_effect.pdf', 'pdf');
-    if (!f) return;
+    const title = allN.length === 1 ? `${allN[0].replace('/', '')}_load_effect` : 'load_effect';
     progStart();
     setProg(null); setMsg('writing the report ...');
     await nextFrame();
-    let msg = 'report saved', col;
+    let msg = 'print dialog: Save as PDF', col;
     try {
         const D = await buildReport(full);
         if (D === null) { setProg(null); msg = 'cancelled'; }
-        else {
-            const ok = await writeFile(f, await D.blob());
-            if (!ok) msg = `could not write ${f.name}, downloaded instead`;
-        }
+        else printHTML(title, D.b);
     } catch (e) { msg = 'report failed'; col = RED; console.error(e); }
     progEnd();
     setMsg(msg, col);
 }
-// the report as a PDF document; one bookmark per page.  null: cancelled
+// the report as HTML for the print preview.  null: cancelled
 async function buildReport(full) {
     const multi = allR.length > 1, clamped = sup.map((c, i) => (c ? i + 1 : 0)).filter(Boolean);
     const num = x => gfmt(Number(x.toPrecision(3)));
     const sci = x => { const p = Math.floor(Math.log10(Math.abs(x))); return p >= -2 && p <= 3 ? num(x) : `$${gfmt(Number((x / 10 ** p).toFixed(4)))} \\cdot 10^{${p}}$`; };
-    const D = new PDF.Doc('Railway Bridge Static Load Effects');
+    const D = new ReportDoc();
     D.h1('Railway Bridge Static Load Effects');
-    D.h2('Basis', { bookmark: 'Basis, model and input' });
+    D.h2('Basis');
     D.p('Static load effects of a railway bridge from influence lines: peak bending moment, shear force, displacement, end rotation and support reaction of each train load model over all train positions and both running directions. Wagons are loaded or empty, the train is shortened, and distributed loads are placed, in the most unfavourable way allowed by each model, with as many wagons as the bridge needs.');
     D.p(inp.dyn
         ? "The dynamic factor of each model is applied, not on displacement and rotation: $\\Phi_2$ for LM71, SW/0 and SW/2 (EN 1991-2:2024, 8.4.5.2); $1 + \\varphi' + 0.5\\varphi''$ for the EN 15528 wagons (Annex C) and TLM1–3 (TRVINFRA-00331, 8.3.3.2.5), with the larger sum of the upper and lower limit of the natural frequency; the formula of the standard for the older models. Determinant length $L_\\Phi$ from EN 1991-2:2024 Table 8.2, 5.2, and used as the length $l$ of the older standards."
@@ -1108,7 +1160,7 @@ async function buildReport(full) {
     D.h2('Input');
     D.table('Bridge and train load.', ['', 'Value', 'Unit'], rows, ['', 'r', '']);
 
-    D.h2('Results', { newPage: true, bookmark: 'Results' });
+    D.h2('Results', { newPage: true });
     const vt = (() => {
         if (!sel.length) return `influence lines at $x$ = ${num(xp)} m`;
         const tr = sel[0];
@@ -1126,7 +1178,7 @@ async function buildReport(full) {
             ['', 'r', 'r', 'r', 'r', 'r', 'r', 'r']);
     }
     if (multi && !full) {
-        D.h2('Critical sections', { newPage: true, bookmark: 'Critical sections' });
+        D.h2('Critical sections', { newPage: true });
         D.figure(critSvg(LE), 'Influence lines and governing train at the critical sections.');
     } else if (multi) {
         for (let k = 0; k < allR.length; k++) {
@@ -1134,7 +1186,7 @@ async function buildReport(full) {
             await nextFrame();
             if (ui.stopReq) return null;
             const L1 = allR[k], t = `Load model ${allN[k]}`;
-            D.h2(t, { newPage: true, bookmark: t });
+            D.h2(t, { newPage: true });
             D.figure(trainSvg(allN[k]), 'Load model, axle loads in kN, dimensions in m.');
             let fx = inp.dyn ? (dynOne(L1) + '.') : `No dynamic factor applied, $L_\\Phi$ = ${L1.Lphi.toFixed(1)} m.`;
             if (allN[k] === 'LM71') fx += ` Load classification factor $\\alpha$ = ${gfmt(scalarOr('iAlpha', 1.33))} on the loads.`;
