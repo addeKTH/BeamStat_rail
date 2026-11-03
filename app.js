@@ -9,7 +9,7 @@
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
-const VER = '2026-11-03a';
+const VER = '2026-11-03d';
 
 // ---------------------------------------------------------- default input
 const def = { L: '20 20', EI: '35E9', dL: '0.1', bQType: '1-point', bQLast: '1-point', b_Q: '3.0',
@@ -941,22 +941,22 @@ function printHTML(title, body) {
     const css = `@page { size: A4; margin: 25mm 25mm 25mm 25mm;
         @top-right { content: "${today}"; font: 11pt "Times New Roman", Times, serif; }
         @bottom-center { content: counter(page) " (" counter(pages) ")"; font: 11pt "Times New Roman", Times, serif; } }
-      body { margin: 0; font: 11pt/1.3 "Times New Roman", Times, serif; color: #000; }
+      body { margin: 0; font: 11pt/1.2 "Times New Roman", Times, serif; color: #000; }
       h1 { font-size: 16pt; font-weight: normal; margin: 0 0 6pt; }
-      h2 { font-size: 14pt; margin: 14pt 0 4pt; }
+      h2 { font-size: 14pt; margin: 11pt 0 3pt; break-after: avoid; }
       p { margin: 0 0 6pt; text-align: justify; hyphens: auto; }
       ul { margin: 0 0 6pt; padding-left: 1.2em; }
       li { margin: 0 0 4pt; text-align: justify; hyphens: auto; }
-      table { border-collapse: collapse; margin: 4pt auto 10pt; }
-      caption { caption-side: top; padding-bottom: 6pt; }
+      table { border-collapse: collapse; margin: 3pt auto 6pt; break-inside: avoid; }
+      caption { caption-side: top; padding-bottom: 4pt; }
       th, td { padding: 1pt 7pt; text-align: left; font-weight: normal; }
       td.r, th.r { text-align: right; } td.c, th.c { text-align: center; }
       tr.gr { border-top: 0.8pt solid #000; } tr.gr td { padding-top: 3pt; font-weight: bold; }
       table.long td { padding-top: 0.5pt; padding-bottom: 0.5pt; line-height: 1.2; }
       thead tr { border-top: 0.8pt solid #000; border-bottom: 0.8pt solid #000; }
       tbody tr:last-child { border-bottom: 0.8pt solid #000; }
-      figure { margin: 6pt 0 10pt; text-align: center; break-inside: avoid; }
-      figcaption { margin-top: 6pt; }
+      figure { margin: 4pt 0 6pt; text-align: center; break-inside: avoid; }
+      figcaption { margin-top: 4pt; }
       .np { break-before: page; }
       svg { display: block; margin: 0 auto; }`;
     const fr = document.createElement('iframe');
