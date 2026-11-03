@@ -1,5 +1,5 @@
 /* app.js --------------------------------------------------------------------
-   Railway bridge static load effects, web version of Main_gui.m (2026-11-02):
+   Railway bridge static load effects, web version of Main_gui.m (2026-11-03):
    input, sketch and analysis of the ticked trains on every change (Web Workers from
    six trains), Section / Critical / Envelope, Run (Cancel after 5 s), Reset, Export
    (xlsx), Print (report by browser print to PDF).
@@ -9,17 +9,27 @@
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
-const VER = '2026-11-02o';
+const VER = '2026-11-03a';
 
 // ---------------------------------------------------------- default input
 const def = { L: '20 20', EI: '35E9', dL: '0.1', bQType: '1-point', bQLast: '1-point', b_Q: '3.0',
               alpha: '1.33', v: '120', shw: 'Section' };
 const bQTypes = ['1-point', '3-point', '5-point', 'Triangular'];
 const shwList = ['Section', 'Critical', 'Envelope'];
-const catList = ['A10', 'A12', 'A14', 'A1', 'B1', 'B2', 'C2', 'C3', 'C4', 'D2', 'D3', 'D4', 'D5', 'E4', 'E5', 'E6', 'XLA', 'XLB'];
-const mainList = ['LM71', 'SW/0', 'SW/2', 'UT', 'A1919', 'B1919', 'C1919', 'D1919', 'A', 'B', 'F', 'LG1', 'LG2', '85F', '60F', 'TLM1', 'TLM2', 'TLM3'];
-const loadList = ['LM71', 'SW/0', 'SW/2', 'UT', 'A1919', 'B1919', 'C1919', 'D1919', 'A', 'B', 'F', 'LG1', 'LG2', '85F', '60F', ...catList, 'TLM1', 'TLM2', 'TLM3'];
-const vList = ['A1919', 'B1919', 'C1919', 'D1919', 'F', 'LG1', 'LG2', '85F', '60F', ...catList];   // factor depends on v
+const catList = ['A', 'B1', 'B2', 'C2', 'C3', 'C4', 'D2', 'D3', 'D4', 'D5', 'E4', 'E5', 'E6', 'xL-a', 'xL-b'];   // EN 15528
+const grpList = [['EN 1991-2', ['LM71', 'SW/0', 'SW/2']],
+                 ['TRVINFRA', ['TLM1', 'TLM2', 'TLM3', 'TLM4']],      // TRVINFRA-00331
+                 ['SoU 1938', ['A1938', 'B1938']],                    // shown as A, B in the menu
+                 ['SoU 1961', ['F', '085F', '060F']]];                // with LG1, LG2, see beamstat2d.js
+const loadList = [...grpList.flatMap(g => g[1]), ...catList];         // the order of the results
+const vList = ['F', '085F', '060F', ...catList];                      // factor depends on v
+// a train under its group: A, B of SoU 1938
+const shortName = n => n.replace(/^([AB])1938$/, '$1');
+// name in beamstat2d.js: there A, B are SoU 1938 and A1 is line category A of EN 15528,
+// not the same load model; here A1938, B1938 and A
+const solverName = n => ({ A: 'A1', A1938: 'A', B1938: 'B' }[n] || n);
+// the group of a train, as a title in the report
+const groupOf = n => { const g = grpList.find(x => x[1].includes(n)); return !g ? 'EN 15528' : g[0] === 'TRVINFRA' ? 'TRVINFRA-00331' : g[0]; };
 const co = ['#0072BD', '#D95319'], cEm = '#f5b899', cCar = '#d90000', nMax = 2e6;
 
 // shared state (as Main_gui)
@@ -171,29 +181,30 @@ function addItem(m, text, chk, fn) {
     m.appendChild(d);
 }
 
-// the train menu: tick boxes; left the models one by one, right EN 15528, one box for
-// them all and one each.  A tick applies at once; what is calculated is kept.
+// the train menu: tick boxes in groups, left EN 1991-2, TRVINFRA, SoU 1938, SoU 1961, right
+// EN 15528, with a box for all trains of the group.  A tick applies at once; what is
+// calculated is kept.
 const mT = $('mTrain'), tks = new Map();
 function addTick(text, x, row, fn, bold) {
     const l = document.createElement('label'), c = document.createElement('input');
     c.type = 'checkbox'; c.dataset.train = text;
     l.style.left = x + 'px'; l.style.top = (4 + row * 17) + 'px';
     if (bold) l.className = 'b';
-    l.appendChild(c); l.appendChild(document.createTextNode(text));
+    l.appendChild(c); l.appendChild(document.createTextNode(shortName(text)));
     c.addEventListener('change', () => fn(c));
     mT.appendChild(l);
     return c;
 }
-const tkAll = addTick('All trains', 6, 0, c => setSel(c.checked ? loadList : []), true);
-const tkEN = addTick('EN 15528', 100, 0, c => setSel(c.checked ? [...sel, ...catList] : sel.filter(s => !catList.includes(s))), true);
 const onTick = c => setSel(c.checked ? [...sel, c.dataset.train] : sel.filter(s => s !== c.dataset.train));
-mainList.forEach((n, i) => tks.set(n, addTick(n, 6, i + 1, onTick)));
-catList.forEach((n, i) => tks.set(n, addTick(n, 114, i + 1, onTick)));
-{
-    const b = document.createElement('button');
-    b.textContent = 'Close'; b.addEventListener('click', () => { mT.style.display = 'none'; });
-    mT.appendChild(b);
-}
+const tkG = [];                                  // [box, its trains]
+const addGroup = (title, names, x, r0) => {
+    let r = r0;
+    tkG.push([addTick(title, x, r++, c => setSel(c.checked ? [...sel, ...names] : sel.filter(s => !names.includes(s))), true), names]);
+    names.forEach(n => tks.set(n, addTick(n, x + 14, r++, onTick)));
+    return r;
+};
+grpList.reduce((r, g) => addGroup(g[0], g[1], 6, r), 0);
+addGroup('EN 15528', catList, 100, 0);
 mT.addEventListener('click', ev => ev.stopPropagation());
 const toggleTrain = ev => {
     ev.stopPropagation();
@@ -217,9 +228,8 @@ function setSel(names) {
 }
 function syncTicks() {
     tks.forEach((c, n) => { c.checked = sel.includes(n); });
-    tkAll.checked = sel.length === loadList.length;
-    tkEN.checked = catList.some(n => sel.includes(n));
-    const st = !sel.length ? 'none' : sel.length === loadList.length ? 'All trains' : sel.length <= 2 ? sel.join(', ') : `${sel.length} trains`;
+    tkG.forEach(([c, names]) => { c.checked = names.some(n => sel.includes(n)); });
+    const st = !sel.length ? 'none' : sel.length <= 2 ? sel.join(', ') : `${sel.length} trains`;
     $('iLoad').value = st;
     $('iLoad').title = sel.length ? sel.join(', ') : 'No train ticked: the influence lines alone';
 }
@@ -361,7 +371,7 @@ function runPool(names, ILe, show) {
                 if (done === names.length) { over = true; ui.abort = null; resolve(false); } else feed(w);
             };
             w.onerror = e => { if (!over) { over = true; killPool(); reject(new Error(e.message || 'worker error')); } };
-            w.postMessage({ id: k, name, opt: leOpt(name) });
+            w.postMessage({ id: k, name: solverName(name), opt: leOpt(name) });
         };
         pool.forEach(feed);
     });
@@ -371,7 +381,7 @@ async function runSerial(names, ILe, show) {
     for (let k = 0; k < names.length; k++) {
         if (show) { setProg(k / names.length); setMsg(`${names[k]}: ${k + 1}/${names.length}`); await nextFrame(); }
         if (ui.stopReq) return true;
-        allS.set(names[k], BS.loadEffect(ILe, names[k], leOpt(names[k])));
+        allS.set(names[k], BS.loadEffect(ILe, solverName(names[k]), leOpt(names[k])));
     }
     return false;
 }
@@ -480,15 +490,10 @@ function dynOne(L) {
     const Tt = L.T[0], la = `$L_\\Phi$ = ${L.Lphi.toFixed(1)} m`, v = scalarOr('iV', 120);
     switch (Tt.code) {
         case 1991:
-            if (Tt.type === 'UT') return 'No dynamic factor';
             return `$\\Phi_2$ = ${L.phi.toFixed(2)}, ${la}`;
         case 15528: case 2025: {
             const vt = Tt.code === 2025 ? `, $v$ = ${gfmt(Tt.vmax)} km/h` : '';
             return `$1 + \\varphi' + 0.5\\varphi''$ = 1 + ${L.phiParts[0].toFixed(2)} + ${L.phiParts[1].toFixed(2)} = ${L.phi.toFixed(2)}, ${la}${vt}`;
-        }
-        case 1919: {
-            const fv = v < 100 ? `(${gfmt(v)}/100)\\,` : '';
-            return `$\\varphi = 1 + ${fv}10/(13 + 0.7\\,l)$ = ${L.phi.toFixed(2)}, $l$ = ${L.Lphi.toFixed(1)} m`;
         }
         case 1938: return `$\\varphi = 1 + 17.65/(20 + l)$ = ${L.phi.toFixed(2)}, $l$ = ${L.Lphi.toFixed(1)} m`;
         case 1961: {
@@ -817,7 +822,7 @@ function render(md, set) {
     if (md !== 'Section' && !LE) md = 'Section';
     if (md === 'Section') {
         if (!sel.length) drawPos(ilLE(), true, set);
-        else drawPos(mergeSel(sel, sel.map(n => BS.loadEffect(IL, n, leOpt(n)))), false, set);
+        else drawPos(mergeSel(sel, sel.map(n => BS.loadEffect(IL, solverName(n), leOpt(n)))), false, set);
     } else if (md === 'Critical') drawPos(LE, false, set);
     else if (allR.length > 1) drawAll(set);
     else drawEnv(LE, set);
@@ -869,7 +874,7 @@ async function writeFile(f, blob) {
 const speedOf = (name, L1) => {
     if (!inp.dyn) return '-';
     if (L1.T[0].code === 2025) return L1.T[0].vmax;
-    if (vList.includes(name)) { const v = scalarOr('iV', 120); return L1.T[0].code === 1919 ? Math.min(v, 100) : v; }
+    if (vList.includes(name)) return scalarOr('iV', 120);
     return '-';
 };
 const lm71Rows = () => (inp.loadDist === '1-point' ? '4 point loads' : 'evenly distributed on 6.4 m');
@@ -940,10 +945,13 @@ function printHTML(title, body) {
       h1 { font-size: 16pt; font-weight: normal; margin: 0 0 6pt; }
       h2 { font-size: 14pt; margin: 14pt 0 4pt; }
       p { margin: 0 0 6pt; text-align: justify; hyphens: auto; }
+      ul { margin: 0 0 6pt; padding-left: 1.2em; }
+      li { margin: 0 0 4pt; text-align: justify; hyphens: auto; }
       table { border-collapse: collapse; margin: 4pt auto 10pt; }
       caption { caption-side: top; padding-bottom: 6pt; }
       th, td { padding: 1pt 7pt; text-align: left; font-weight: normal; }
       td.r, th.r { text-align: right; } td.c, th.c { text-align: center; }
+      tr.gr { border-top: 0.8pt solid #000; } tr.gr td { padding-top: 3pt; font-weight: bold; }
       table.long td { padding-top: 0.5pt; padding-bottom: 0.5pt; line-height: 1.2; }
       thead tr { border-top: 0.8pt solid #000; border-bottom: 0.8pt solid #000; }
       tbody tr:last-child { border-bottom: 0.8pt solid #000; }
@@ -973,11 +981,13 @@ class ReportDoc {
     h1(s) { this.b += `<h1>${PL.texHTML(s)}</h1>`; }
     h2(s, opt) { this.b += `<h2${opt && opt.newPage ? ' class="np"' : ''}>${PL.texHTML(s)}</h2>`; }
     p(s) { this.b += `<p>${PL.texHTML(s)}</p>`; }
+    ul(items) { this.b += `<ul>${items.map(s => `<li>${PL.texHTML(s)}</li>`).join('')}</ul>`; }
+    // a row given as a string: the title of a group, across the table
     table(cap, head, rows, al) {
         const cell = (t, c, i) => `<${t} class="${al[i]}">${PL.texHTML(String(c))}</${t}>`;
         this.b += `<table${rows.length > 25 ? ' class="long"' : ''}><caption>Table ${++this.nt}:&ensp;${PL.texHTML(cap)}</caption>` +
                   `<thead><tr>${head.map((c, i) => cell('th', c, i)).join('')}</tr></thead>` +
-                  `<tbody>${rows.map(r => `<tr>${r.map((c, i) => cell('td', c, i)).join('')}</tr>`).join('')}</tbody></table>`;
+                  `<tbody>${rows.map(r => (typeof r === 'string' ? `<tr class="gr"><td colspan="${head.length}">${PL.texHTML(r)}</td></tr>` : `<tr>${r.map((c, i) => cell('td', c, i)).join('')}</tr>`)).join('')}</tbody></table>`;
     }
     figure(svg, cap) {
         const vb = svg.getAttribute('viewBox').split(/\s+/).map(Number);
@@ -1022,9 +1032,9 @@ function critSvg(L1) {
 // the load model: axle loads as arrows with their value (kN), distributed loads as bands,
 // cars as red dotted boxes, dimension lines below (m)
 function trainSvg(name) {
-    let rows = [[name, 1, '']];
-    if (name === '85F') rows = [['F', 0.85, '0.85 F, or'], ['LG1', 1, 'LG1']];
-    if (name === '60F') rows = [['F', 0.60, '0.60 F, or'], ['LG2', 1, 'LG2']];
+    let rows = [[solverName(name), 1, '']];
+    if (name === '085F') rows = [['F', 0.85, '0.85 F, or'], ['LG1', 1, 'LG1']];
+    if (name === '060F') rows = [['F', 0.60, '0.60 F, or'], ['LG2', 1, 'LG2']];
     const hr = 150 - (rows.length > 1 ? 30 : 0), svg = newSvg(700, rows.length * hr);
     rows.forEach((r, i) => drawTrain(svg, { x: 20, y: i * hr + 2, w: 660, h: hr - 4 }, BS.trainModel(r[0], 0), r[1], r[2], r[0] === 'LM71' && inp.loadDist !== '1-point'));
     return svg;
@@ -1120,7 +1130,7 @@ async function onReport() {
     }
     const title = allN.length === 1 ? `${allN[0].replace('/', '')}_load_effect` : 'load_effect';
     progStart();
-    setProg(null); setMsg('writing the report ...');
+    setProg(null); setMsg('printing ...');
     await nextFrame();
     let msg = 'print dialog: Save as PDF', col;
     try {
@@ -1139,17 +1149,18 @@ async function buildReport(full) {
     const D = new ReportDoc();
     D.h1('Railway Bridge Static Load Effects');
     D.h2('Basis');
-    D.p('Static load effects of a railway bridge from influence lines: peak bending moment, shear force, displacement, end rotation and support reaction of each train load model over all train positions and both running directions. Wagons are loaded or empty, the train is shortened, and distributed loads are placed, in the most unfavourable way allowed by each model, with as many wagons as the bridge needs.');
-    D.p(inp.dyn
-        ? "The dynamic factor of each model is applied, not on displacement and rotation: $\\Phi_2$ for LM71, SW/0 and SW/2 (EN 1991-2:2024, 8.4.5.2); $1 + \\varphi' + 0.5\\varphi''$ for the EN 15528 wagons (Annex C) and TLM1–3 (TRVINFRA-00331, 8.3.3.2.5), with the larger sum of the upper and lower limit of the natural frequency; the formula of the standard for the older models. Determinant length $L_\\Phi$ from EN 1991-2:2024 Table 8.2, 5.2, and used as the length $l$ of the older standards."
-        : 'No dynamic factor is applied.');
+    D.ul(['Static load effects from influence lines: bending moment, shear force, displacement, end rotation and support reaction, over all train positions and both running directions.',
+          'Wagons loaded or empty, train shortened and distributed loads placed in the most unfavourable way each load model allows, with as many wagons as the bridge needs.',
+          ...(inp.dyn ? ["Dynamic factor, not on displacement and rotation: $\\Phi_2$ for EN 1991-2 (8.4.5.2); $1 + \\varphi' + 0.5\\varphi''$ for EN 15528 (EN 1991-2:2024 Annex C) and TRVINFRA-00331 (8.3.3.2.5), the larger sum of the upper and lower limit of the natural frequency; the formula of the standard for SoU 1938 and SoU 1961.",
+                        'Determinant length $L_\\Phi$ from EN 1991-2:2024 Table 8.2, 5.2, also the length $l$ of SoU 1938 and SoU 1961.'] : ['No dynamic factor.']),
+          ...(allN.some(n => n === '085F' || n === '060F') ? ['085F: the larger effect of 0.85 F and LG1; 060F: the larger effect of 0.60 F and LG2.'] : [])]);
 
     const stx = clamped.length ? `support${clamped.length > 1 ? 's' : ''} ${clamped.join(', ')} clamped, the others pinned` : 'all supports pinned';
     D.h2('Structural model');
     D.p(`2D Bernoulli-Euler beam, ${rnd(mdl.Ltot / mdl.dL)} elements of ${num(mdl.dL)} m, ${stx}. The influence lines are exact at the nodes, and the axles stand on nodes, so that axle spacings the element length does not divide are rounded. ${loadDistTex()} Model in figure 1.`);
+    D.p('Sign convention, with $x$ from the left end: bending moment $M$ positive when sagging (tension at the underside), negative when hogging (tension at the top); shear force $V = \\mathrm{d}M/\\mathrm{d}x$, so positive at the left end of a span under downward load; displacement $d$ positive upward; rotation $\\phi = \\mathrm{d}d/\\mathrm{d}x$, so anticlockwise positive; support reaction $R$ positive upward. In the tables $M_\\mathrm{max}$ is the largest sagging moment and $M_\\mathrm{min}$ the largest hogging moment; $V_\\mathrm{max}$, $d_\\mathrm{max}$ and $\\phi_\\mathrm{max}$ are the largest absolute values.');
     const sm = newSvg(700, 170), mm = drawModel(sm, { x: 20, y: 5, w: 660, h: 160 }, { size: 14.7 });
     markPeaks(showMode() !== 'Section', mm, sm);
-    if (showMode() === 'Section') { mm.mk = PL.el('g', { transform: `translate(${mm.X(xp)} ${mm.Y(0)})` }, sm); drawMarker(mm); }
     D.figure(sm, 'Model, dimensions in m.');
 
     const rows = [['Spans, $L$', inp.L.map(gfmt).join(' + '), 'm'], ['Flexural rigidity, $EI$', inp.EI.map(sci).join(', '), 'Nm$^2$'],
@@ -1163,7 +1174,7 @@ async function buildReport(full) {
     D.h2('Results', { newPage: true });
     const vt = (() => {
         if (!sel.length) return `influence lines at $x$ = ${num(xp)} m`;
-        const tr = sel[0];
+        const tr = `${shortName(sel[0])} (${groupOf(sel[0])})`;
         if (showMode() === 'Envelope') return `envelopes of train ${tr}`;
         if (showMode() === 'Critical') return `influence lines and governing arrangement of train ${tr} at the critical sections`;
         return `influence lines and governing arrangement of train ${tr} at $x$ = ${num(xp)} m`;
@@ -1174,7 +1185,10 @@ async function buildReport(full) {
     if (allR.length) {
         const neg = v => (v < 0 ? '−' + (-v).toFixed(0) : v.toFixed(0));
         D.table('Peak values.', ['Train', '$\\Phi$', '$M_\\mathrm{max}$ (kNm)', '$M_\\mathrm{min}$ (kNm)', '$V_\\mathrm{max}$ (kN)', '$d_\\mathrm{max}$ (mm)', '$\\phi_\\mathrm{max}$ (mrad)', '$R_\\mathrm{max}$ (kN)'],
-            allR.map((L, k) => [allN[k], L.phi.toFixed(2), (L.Mmax / 1e3).toFixed(0), neg(L.Mmin / 1e3), (Math.abs(L.Vmax) / 1e3).toFixed(0), (Math.abs(L.dmax) * 1e3).toFixed(1), (Math.abs(L.rmax) * 1e3).toFixed(1), (L.RFmax / 1e3).toFixed(0)]),
+            allR.flatMap((L, k) => {                 // a row with the group of the trains below
+                const row = [shortName(allN[k]), L.phi.toFixed(2), (L.Mmax / 1e3).toFixed(0), neg(L.Mmin / 1e3), (Math.abs(L.Vmax) / 1e3).toFixed(0), (Math.abs(L.dmax) * 1e3).toFixed(1), (Math.abs(L.rmax) * 1e3).toFixed(1), (L.RFmax / 1e3).toFixed(0)];
+                return k === 0 || groupOf(allN[k]) !== groupOf(allN[k - 1]) ? [groupOf(allN[k]), row] : [row];
+            }),
             ['', 'r', 'r', 'r', 'r', 'r', 'r', 'r']);
     }
     if (multi && !full) {
@@ -1182,10 +1196,10 @@ async function buildReport(full) {
         D.figure(critSvg(LE), 'Influence lines and governing train at the critical sections.');
     } else if (multi) {
         for (let k = 0; k < allR.length; k++) {
-            setProg(k / allR.length); setMsg(`${allN[k]}: ${k + 1}/${allR.length}`);
+            setProg(k / allR.length); setMsg(`printing ${allN[k]}: ${k + 1}/${allR.length}`);
             await nextFrame();
             if (ui.stopReq) return null;
-            const L1 = allR[k], t = `Load model ${allN[k]}`;
+            const L1 = allR[k], t = `Load model ${shortName(allN[k])} (${groupOf(allN[k])})`;
             D.h2(t, { newPage: true });
             D.figure(trainSvg(allN[k]), 'Load model, axle loads in kN, dimensions in m.');
             let fx = inp.dyn ? (dynOne(L1) + '.') : `No dynamic factor applied, $L_\\Phi$ = ${L1.Lphi.toFixed(1)} m.`;

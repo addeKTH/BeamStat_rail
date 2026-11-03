@@ -1,6 +1,6 @@
 /* beamstat2d.js --------------------------------------------------------------
    Static load effects of design trains on a 2D beam, by influence lines: a port of
-   BeamStat2D.m (2026-11-02); see its header for the method and the train models.
+   BeamStat2D.m (2026-11-03); see its header for the method and the train models.
 
    BS.influenceLines(inp)         inp: L [m], EI (one or per span), dL, bc [[x, dir, K]],
                                   xp, loadDist, b_Q
@@ -212,7 +212,7 @@ BS.loadEffect = function (IL, type, opt0) {
 
     // combined load models: both alternatives, the larger effect (the same factor)
     const cmb = { '85F': [['F', 'LG1'], [0.85, 1]], '60F': [['F', 'LG2'], [0.60, 1]] };
-    const up = type.toUpperCase();
+    const up = type.toUpperCase().replace(/^0(\d\dF)$/, '$1');         // '085F' = '85F'
     if (cmb[up]) {
         const o = cmb[up][0].map((t, k) => BS.loadEffect(IL, t, Object.assign({}, opt, { fac: opt.fac * cmb[up][1][k] })));
         return mergeLE(o[0], o[1], up);
@@ -566,7 +566,7 @@ const rep = (v, n) => new Array(n).fill(v);
 
 BS.trainModel = function (type0, Lneed) {
     Lneed = Lneed || 0;
-    const g = 9.81, type = type0.toUpperCase().replace('/', '');
+    const g = 9.81, type = type0.toUpperCase().replace('/', '').replace('-', '');   // 'SW/0' = 'SW0', 'xL-a' = 'XLA'
     let q = 0, qe = 0, qseg = [], vs = [], nWagon = 0, xa = [], Pa = [], Pea = [], vi = [], iw = [], vb = [];
     let cv = 1e3 * g, vmax = null, Lg = null, code;
     const nw = Lw => Math.ceil(Lneed / Lw) + 1;
@@ -623,6 +623,9 @@ BS.trainModel = function (type0, Lneed) {
         else { wg = mkv(0.8, [1.75, 4.9, 1.75], 0.8, rep(250, 4), rep(50, 4), true); vmax = 60; }
         nWagon = nw(wg.L);
         vs = rep(wg, nWagon);
+    } else if (type === 'TLM4') {                                 // two blocks, a fixed pattern
+        code = 2025; cv = 1e3; vmax = 30;
+        q = 150; qe = 150; qseg = [[0, 22.5], [38.3, 60.8]];
     } else if (['LM71', 'SW0', 'SW2', 'UT'].includes(type)) {
         code = 1991; cv = 1e3;
         if (type === 'LM71') {
