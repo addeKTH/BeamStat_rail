@@ -1,5 +1,5 @@
 /* app.js --------------------------------------------------------------------
-   Railway bridge static load effects, web version of Main_gui.m (2026-11-03):
+   Railway bridge static load effects, web version of Main_gui.m (2026-11-05):
    input, sketch and analysis of the ticked trains on every change (Web Workers from
    six trains), Section / Critical / Envelope, Run (Cancel after 5 s), Reset, Export
    (xlsx), Print (report by browser print to PDF).
@@ -9,11 +9,16 @@
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
-const VER = '2026-11-05a';
+const VER = '2026-11-05b';
 
 // ---------------------------------------------------------- default input
 const def = { L: '20 20', EI: '35E9', dL: '0.1', bQType: '1-point', bQLast: '1-point', b_Q: '3.0',
-              alpha: '1.33', v: '120', shw: 'Section' };
+              alpha: '1.33', v: '120', shw: 'Section', EIopt: 'L/delta = 600' };   // EIopt '' = EI typed
+// EI from the deflection limit of EN 1990:2023 A.2.9.4.3.2: the options and the menu text
+const EIopts = ['L/delta = 600', ...[120, 160, 200, 220, 250, 280, 300, 350].map(v => `V_T = ${v} km/h`)];
+const EIlabel = o => (o.startsWith('L/delta') ? '<i>L</i>/<i>δ</i><sub>V</sub> = 600' : o.replace(/^V_T/, '<i>V</i><sub>T</sub>'));
+// input limits, as Main_gui
+const dLmin = 0.01, nElMax = 5000, Lmin = 1, Lmax = 2000, alphaLim = [0.75, 1.46], vLim = [0, 200];
 const bQTypes = ['1-point', '3-point', '5-point', 'Triangular'];
 const shwList = ['Section', 'Critical', 'Envelope'];
 const catList = ['A', 'B1', 'B2', 'C2', 'C3', 'C4', 'D2', 'D3', 'D4', 'D5', 'E4', 'E5', 'E6', 'xL-a', 'xL-b'];   // EN 15528
@@ -35,7 +40,8 @@ const co = ['#0072BD', '#D95319'], cEm = '#f5b899', cCar = '#d90000', nMax = 2e6
 // shared state (as Main_gui)
 let inp = {}, mdl = {}, ILa = null, IL = null, LE = null, sup = [], jx = 0, xp = 0, sig = '';
 let xpAuto = true, sel = [], selAuto = true, allS = new Map(), allN = [], allR = [], modelMap = null, tProg = 0;
-const ui = { bQType: def.bQType, bQLast: def.bQLast, bQVal: def.b_Q, busy: false, stopReq: false, stopOn: false, stopTimer: null, abort: null };
+const ui = { bQType: def.bQType, bQLast: def.bQLast, bQVal: def.b_Q, busy: false, stopReq: false, stopOn: false, stopTimer: null, abort: null,
+             EIopt: def.EIopt, EIinfo: null, EIkey: '', vOff: false, Lmoved: false, nCap: false };
 
 // ============================================================ helpers
 // numbers as MATLAB str2num would read them: '20 20', '[10 15 10]', '15E3', simple expressions
@@ -145,12 +151,30 @@ function setDefaults() {
     ui.bQType = def.bQType; ui.bQLast = def.bQLast; ui.bQVal = def.b_Q;
     $('tPhi').checked = true; $('tD').checked = true; $('tR').checked = false; $('tF').checked = false;
     selAuto = true; xpAuto = true; sup = []; sig = '';
+    ui.vOff = false; ui.EIopt = def.EIopt; ui.EIkey = '';
 }
-for (const id of ['iL', 'iEI', 'iAlpha', 'iV']) $(id).addEventListener('change', () => updateModel());
+for (const id of ['iL', 'iAlpha', 'iV']) $(id).addEventListener('change', () => updateModel());
+// a typed EI ends the computed one
+$('iEI').addEventListener('change', () => { ui.EIopt = ''; ui.EIkey = ''; $('iEI').classList.remove('auto'); updateModel(); });
+// the EI menu below its button: a limit picked computes EI
+$('bEI').addEventListener('click', ev => {
+    ev.stopPropagation();
+    const m = $('mBQ'); m.innerHTML = '';
+    EIopts.forEach((o, k) => {
+        if (k === 1) m.appendChild(document.createElement('hr'));
+        addItem(m, EIlabel(o), ui.EIopt === o, () => { ui.EIopt = o; ui.EIkey = ''; updateModel(); }, true);
+    });
+    m.style.left = $('bEI').offsetLeft + 'px'; m.style.top = ($('bEI').offsetTop + 22) + 'px'; m.style.display = 'block';
+    $('mTrain').style.display = 'none';
+});
 $('idL').addEventListener('change', e => { ui.dLset = e.target.value.trim(); updateModel(); });
 $('iXp').addEventListener('change', () => { xpAuto = false; updateModel(); });
 $('iShw').addEventListener('change', () => { if (!ui.busy && ILa) updatePlots(); });
-$('tPhi').addEventListener('change', () => updateModel());
+// a tick on Phi after v = 0 brings back the default speed
+$('tPhi').addEventListener('change', () => {
+    if ($('tPhi').checked && ui.vOff) { ui.vOff = false; $('iV').value = def.v; }
+    updateModel();
+});
 for (const id of ['tD', 'tR', 'tF']) $(id).addEventListener('change', () => {
     for (const j of ['tD', 'tR', 'tF']) $(j).checked = j === id;
     if (!ui.busy && ILa) updatePlots();
@@ -174,9 +198,10 @@ $('bbQ').addEventListener('click', ev => {
     m.style.left = $('bbQ').offsetLeft + 'px'; m.style.top = ($('bbQ').offsetTop + 22) + 'px'; m.style.display = 'block';
     $('mTrain').style.display = 'none';
 });
-function addItem(m, text, chk, fn) {
+function addItem(m, text, chk, fn, html) {
     const d = document.createElement('div');
-    d.textContent = text; if (chk) d.className = 'chk';
+    if (html) d.innerHTML = text; else d.textContent = text;
+    if (chk) d.className = 'chk';
     d.addEventListener('click', () => { m.style.display = 'none'; fn(); });
     m.appendChild(d);
 }
@@ -236,27 +261,42 @@ function syncTicks() {
 
 // ============================================================ input / model
 function readInput() {
-    const L = parseVec($('iL').value), EI = parseVec($('iEI').value), dL = scalar(ui.dLset);
-    // the field: as typed, or (grey) the length in use where a short bridge needs more
-    // elements; the typed value returns when the bridge is longer again
+    const L = parseVec($('iL').value), EI = parseVec($('iEI').value);
+    let dL = scalar(ui.dLset);
+    // dL: a negative value counts as positive, at least dLmin, and these replace what was typed
+    if (dL !== null && (dL < 0 || Math.abs(dL) < dLmin)) { dL = Math.max(Math.abs(dL), dLmin); ui.dLset = gfmt(dL); }
+    // the field: as typed, or (grey) the length in use where a span needs a shorter element,
+    // at most a tenth of the shortest span, or a long bridge fewer elements (at most nElMax,
+    // in whole cm), or a short bridge more elements; the typed value returns when it fits again
     let dLshow = ui.dLset, dLgrey = false;
-    if (L && L.every(v => v > 0) && dL > 0) {
-        const s0 = L.reduce((a, b) => a + b, 0), ne = BS.nElements(s0, dL);
-        if (ne !== rnd(s0 / dL)) { dLshow = gfmt(s0 / ne); dLgrey = true; }
+    ui.nCap = false;
+    if (goodVec(L) && dL !== null) {
+        const s0 = sum(L), dMax = Math.max(Math.min(...L) / 10, dLmin);
+        if (dL > dMax) { dL = dMax; dLshow = gfmt(dL); dLgrey = true; }
+        const dN = Math.ceil(s0 / nElMax * 100) / 100;
+        if (dL < dN) { dL = dN; ui.nCap = true; dLshow = gfmt(dL); dLgrey = true; }
+        if (s0 < 10 && rnd(s0 / dL) < 100) { dLshow = gfmt(s0 / 100); dLgrey = true; }
     }
     $('idL').value = dLshow; $('idL').classList.toggle('auto', dLgrey);
-    if (xpAuto && L) $('iXp').value = String(L[0] / 2);          // midspan of the first span, until moved by hand
-    const xv = scalar($('iXp').value);
+    if (xpAuto && goodVec(L)) $('iXp').value = gfmt(L[0] / 2);   // midspan of the first span, until moved by hand
+    let xv = scalar($('iXp').value);
     inp.L = L; inp.EI = EI; inp.dL = dL;
     if (selAuto && L) sel = L.length > 1 ? ['LM71', 'SW/0'] : ['LM71'];
     syncTicks();
     inp.load = sel;
     inp.dyn = $('tPhi').checked;
-    const onA = sel.includes('LM71'), onV = inp.dyn && sel.some(n => vList.includes(n));
+    // alpha with LM71 ticked; v where a dynamic factor depends on it, also after v = 0 has
+    // unticked Phi, so that it can be raised again
+    const onA = sel.includes('LM71'), onV = (inp.dyn || ui.vOff) && sel.some(n => vList.includes(n));
     $('iAlpha').style.display = onA ? '' : 'none'; $('lAlpha').style.display = onA ? '' : 'none';
     $('iV').style.display = onV ? '' : 'none'; $('lV').style.display = onV ? '' : 'none';
-    inp.alpha = onA ? scalar($('iAlpha').value) : 1;
-    inp.v = onV ? scalar($('iV').value) : null;
+    inp.alpha = onA ? limitBox('iAlpha', alphaLim) : 1;
+    inp.v = null;
+    if (onV) {
+        inp.v = limitBox('iV', vLim);
+        if (inp.v === 0) { ui.vOff = true; $('tPhi').checked = false; inp.dyn = false; }        // no dynamic factor
+        else if (inp.v !== null && ui.vOff) { ui.vOff = false; $('tPhi').checked = true; inp.dyn = true; }   // a speed again: Phi back
+    }
     inp.loadDist = ui.bQType;
     if (ui.bQType === 'Triangular') {
         let s = $('ibQ').value.trim();
@@ -268,24 +308,73 @@ function readInput() {
         inp.b_Q = 0;
     }
     $('ibQ').title = `Load distribution of each axle, ${ui.bQType.toLowerCase()}: pick 1-, 3- or 5-point with the button, or type the base b_Q (m) of a triangle; empty = back to the point distribution. LM71: 1-point = the 4 axle loads, any other = evenly distributed on 6.4 m`;
-    const ok = L && L.every(v => v > 0) && EI && EI.every(v => v > 0) && (EI.length === 1 || EI.length === L.length)
-        && dL !== null && dL > 0 && dL <= Math.min(...L) && inp.b_Q !== null && inp.b_Q >= 0 && xv !== null
-        && inp.alpha !== null && inp.alpha > 0 && (!onV || (inp.v !== null && inp.v > 0));
+    let ok = goodVec(L) && sum(L) >= Lmin && sum(L) <= Lmax && goodVec(EI) && (EI.length === 1 || EI.length === L.length)
+        && dL !== null && dL > 0 && inp.b_Q !== null && inp.b_Q >= 0 && xv !== null
+        && inp.alpha !== null && (!onV || inp.v !== null);
+    if (ok) ok = realSpans();
     if (ok) {
-        xp = Math.min(Math.max(xv, 0), L.reduce((a, b) => a + b, 0));
+        if (xpAuto) { xv = inp.L[0] / 2; $('iXp').value = gfmt(xv); }
+        xp = Math.min(Math.max(xv, 0), sum(inp.L));
         $('tPhi').disabled = !sel.length;
     } else setMsg('input error', RED);
     return !!ok;
 }
+const sum = a => a.reduce((p, c) => p + c, 0);
+// finite positive numbers, at least one (parseVec gives finite numbers or null)
+const goodVec = v => Array.isArray(v) && v.length > 0 && v.every(x => isFinite(x) && x > 0);
+// a number from a box, kept within lim, the box showing what is used; null if not a number
+function limitBox(id, lim) {
+    let v = scalar($(id).value);
+    if (v !== null && (v < lim[0] || v > lim[1])) { v = Math.min(Math.max(v, lim[0]), lim[1]); $(id).value = gfmt(v); }
+    return v;
+}
+// The supports stand on nodes: each span is rounded to a whole number of elements, and
+// replaces what was typed where it differs, so dL stays as it is.  A short bridge has its
+// 100 elements: there the total length stays and the grid follows from it.  False if a span
+// would vanish.
+function realSpans() {
+    const Lt = sum(inp.L);
+    let LA;
+    if (Lt < 10 && rnd(Lt / inp.dL) < 100) {
+        const dA = Lt / 100; let c = 0;
+        const n = [0, ...inp.L.map(l => rnd((c += l) / dA))];
+        LA = inp.L.map((_, i) => (n[i + 1] - n[i]) * dA);
+        ui.Lmoved = LA.every(v => v > 0) && LA.some((v, i) => Math.abs(v - inp.L[i]) > 1e-3 * dA);
+    } else {
+        const dA = inp.dL;
+        LA = inp.L.map(l => Number((rnd(l / dA) * dA).toFixed(10)));
+        ui.Lmoved = LA.every(v => v > 0) && LA.some((v, i) => Math.abs(v - inp.L[i]) > 1e-3 * dA);
+    }
+    if (!LA.every(v => v > 0)) { ui.Lmoved = false; return false; }
+    if (ui.Lmoved) { inp.L = LA; $('iL').value = LA.map(gfmt).join(' '); }
+    return true;
+}
+// the input in error: no results, so nothing to show, export or print
+function clearResults() {
+    ILa = null; IL = null; LE = null; allN = []; allR = []; allS = new Map(); sig = ''; sendKey = null;
+    clearPlots(); $('dynT').innerHTML = ''; setProg(null);
+}
+// the number of elements in the status text, before a run; above 1000 in red
+function showElements() {
+    const nE = rnd(mdl.Ltot / mdl.dL);
+    if (nE > 1000) setMsg(`${nE} elements: long run time`, RED); else setMsg(`${nE} elements`);
+}
+// the status after a model change: span limit, dL raised, L rounded
+function afterMsg() {
+    if (ui.EIopt && inp.L.some(l => l > 120)) setMsg('span > 120 m: EN 1990 asks for a special analysis', RED);
+    else if (ui.nCap) setMsg(`dL raised: at most ${nElMax} elements`);
+    else if (ui.Lmoved) setMsg('L rounded to whole elements of dL');
+}
 
 function updateModel() {
     if (ui.busy) return false;
-    if (!readInput()) return false;
+    if (!readInput()) { clearResults(); return false; }
     let s0 = 0; const xs = [0, ...inp.L.map(l => (s0 += l))];
     if (sup.length !== xs.length) sup = xs.map(() => false);
     inp.bc = [];
     xs.forEach((x, i) => { inp.bc.push([x, 1, 0]); if (sup[i]) inp.bc.push([x, 2, 0]); });
     mdl.xs = xs; mdl.Ltot = s0; mdl.dL = s0 / BS.nElements(s0, inp.dL);
+    if (ui.EIopt) limitEI();                                     // EI from the deflection limit
 
     // a new model: new analysis; otherwise only the section has changed
     const s = [inp.dL, inp.loadDist, inp.b_Q, inp.dyn, scalarOr('iAlpha', 1.33), scalarOr('iV', 120), inp.L.join(' '), inp.EI.join(' '), sup.join('')].join('|');
@@ -294,9 +383,73 @@ function updateModel() {
     setSection(null);
     plotBeam();
     if ($('msg').style.color === 'rgb(179, 0, 0)') setMsg('');
-    if (isNew || sel.join() !== allN.join()) return analyse(isNew);
+    if (isNew || sel.join() !== allN.join()) return analyse(isNew).then(r => { afterMsg(); return r; });
     updatePlots();
+    afterMsg();
     return true;
+}
+
+// EI from the deflection limit of EN 1990:2023 A.2.9.4.3.2: LM71 with Phi (Phi_2 of
+// EN 1991-2) and alpha = 1, 1-point, one track; the largest deflection in each span against
+// L/delta_V of that span (Figure A.2.3 for b_V = 1.0 m/s^2, times 0.7 for one or two spans,
+// 0.9 for three or more continuous spans, not below 600; or 600 alone).  The deflection
+// goes as 1/EI, so one run at a reference EI scales to the EI that just meets the limit,
+// rounded up to 3 digits; one EI for all spans.  As Main_gui at every node: on a thinned
+// grid the nodes either side of each span's largest deflection are solved again.
+function limitEI() {
+    const key = [ui.EIopt, inp.L.join(' '), inp.dL, sup.join('')].join('|');
+    if (key !== ui.EIkey) {
+        const EI0 = 1e10, nEL = BS.nElements(mdl.Ltot, inp.dL), dl = mdl.Ltot / nEL, xs = mdl.xs, nS = inp.L.length;
+        const k = nS >= 3 ? 0.9 : 0.7, opt = { dyn: true, dynDisp: true, alpha: 1 };
+        const stp = Math.max(1, Math.ceil((nEL + 1) / Math.max(rnd(nMax / (nEL + 1)), 120)));   // as sectionGrid
+        const delAt = idx => {                                   // downward deflection at the nodes idx (m)
+            const I0 = BS.influenceLines({ L: inp.L, EI: EI0, dL: inp.dL, bc: inp.bc, xp: idx.map(i => i * dl), loadDist: '1-point', b_Q: 0 });
+            const L0 = BS.loadEffect(I0, 'LM71', opt);
+            return { x: idx.map(i => i * dl), d: Array.from(L0.d[0], v => -v), phi: L0.phi };
+        };
+        const all = []; for (let i = 0; i <= nEL; i += stp) all.push(i);
+        if (all[all.length - 1] !== nEL) all.push(nEL);
+        let R = delAt(all), phi = R.phi;
+        const best = xs.slice(1).map((x1, i) => {               // per span: index into R of the largest
+            let b = -1, v = -Infinity;
+            R.x.forEach((x, j) => { if (x >= xs[i] - 1e-9 && x <= x1 + 1e-9 && R.d[j] > v) { v = R.d[j]; b = j; } });
+            return [v, all[b]];
+        });
+        if (stp > 1) {                                           // every node near each span's largest
+            const near = new Set();
+            best.forEach(([, i0]) => { for (let i = Math.max(0, i0 - stp); i <= Math.min(nEL, i0 + stp); i++) near.add(i); });
+            const R2 = delAt([...near].sort((a, b) => a - b));
+            R2.x.forEach((x, j) => xs.slice(1).forEach((x1, i) => { if (x >= xs[i] - 1e-9 && x <= x1 + 1e-9 && R2.d[j] > best[i][0]) best[i][0] = R2.d[j]; }));
+            phi = R2.phi;
+        }
+        let need = 0, gov = 0;
+        best.forEach(([del], i) => { const r = del * deflLimit(ui.EIopt, inp.L[i], k) / inp.L[i]; if (r > need) { need = r; gov = i; } });
+        let EI = EI0 * need;
+        const e = Math.floor(Math.log10(EI)) - 2;
+        EI = Math.ceil(Number((EI / 10 ** e).toPrecision(12))) * 10 ** e;   // 3 digits, on the safe side
+        EI = Number(EI.toPrecision(3));
+        ui.EIinfo = { opt: ui.EIopt, lim: deflLimit(ui.EIopt, inp.L[gov], k), gov: gov + 1, k, phi, EI };
+        ui.EIkey = key;
+    }
+    const I = ui.EIinfo;
+    inp.EI = [I.EI];
+    $('iEI').value = `${gfmt(I.EI / 1e9)}E9`; $('iEI').classList.add('auto');
+    $('iEI').title = `EI from ${I.opt}, EN 1990:2023 A.2.9.4.3.2: LM71 x Phi ${I.phi.toFixed(2)}, alpha 1; L/delta = ${I.lim.toFixed(0)} governs in span ${I.gov} (factor ${I.k.toFixed(1)}, not below 600); type a value to set EI by hand`;
+}
+// L/delta_V of EN 1990:2023 Figure A.2.3 (b_V = 1.0 m/s^2) for the span L (m), times k, not
+// below 600; 'L/delta = 600' gives 600.  The table of points as Main_gui's deflLimit: plateau,
+// plateau end, peak L, peak L/delta, end L at 600; straight between; L > 120 m as at 120 m.
+function deflLimit(opt, L, k) {
+    if (opt.startsWith('L/delta')) return 600;
+    const V = parseFloat(opt.replace('V_T =', ''));
+    const C = [[120, 800, 10.0, 22.2, 890, 36.8], [160, 900, 12.5, 29.8, 1190, 63.6], [200, 1000, 15.0, 37.6, 1520, 90.2],
+               [220, 1100, 17.5, 41.0, 1660, 101.6], [250, 1200, 20.0, 47.4, 1910, 122.2], [280, 1300, 22.5, 52.4, 2130, 139.8],
+               [300, 1400, 24.5, 56.2, 2290, 152.8], [350, 1500, 27.0, 65.4, 2650, 182.6]];
+    const c = C.find(r => r[0] === V), Lc = Math.min(L, 120);
+    const X = [0, c[2], c[3], c[5], 1e3], Y = [c[1], c[1], c[4], 600, 600];
+    let i = 0; while (i < 3 && Lc > X[i + 1]) i++;
+    const f = Y[i] + (Y[i + 1] - Y[i]) * (Lc - X[i]) / (X[i + 1] - X[i]);
+    return Math.max(600, k * Math.max(f, 600));
 }
 
 // the sections the influence lines are solved at: every node while that fits in nMax
@@ -432,6 +585,7 @@ function mergeSel(N, R) {
 async function analyse(isNew) {
     progStart();
     const t0 = performance.now();
+    showElements();
     try {
         if (isNew) { await nextFrame(); buildIL(); setSection(null); }
         const stopped = await calcEnv(false);
@@ -460,6 +614,7 @@ async function onRun() {
     if (!ILa) return;
     progStart();
     const t0 = performance.now();
+    showElements();
     try {
         const sel0 = sel.slice(), auto0 = selAuto, S0 = allS;
         allS = new Map();
@@ -890,6 +1045,7 @@ async function onExport() {
         const I0 = [['Quantity', 'Value', 'Unit'],
             ['Span lengths L', inp.L.map(gfmt).join(' '), 'm'],
             ['Flexural rigidity EI', inp.EI.map(expFmt).join(' '), 'Nm^2'],
+            ['EI from', eiSource(false), '-'],
             ['Element size dL', mdl.dL, 'm'],
             ['Load distribution', inp.loadDist, '-'],
             ['Triangle base b_Q', inp.b_Q, 'm'],
@@ -931,6 +1087,18 @@ async function onExport() {
         const blob = XLSX.write([{ name: 'Results', rows: res }, { name: 'InfluenceLines', rows: il }, { name: 'Envelopes', rows: env }]);
         setMsg(await writeFile(f, blob) ? 'saved' : `could not write ${f.name}, downloaded instead`);
     } catch (e) { setMsg('export failed', RED); console.error(e); }
+}
+// where EI comes from: typed, or the deflection limit of EN 1990:2023 A.2.9.4.3.2
+function eiSource(tex) {
+    if (!ui.EIopt || !ui.EIinfo) return 'input';
+    const I = ui.EIinfo, v6 = I.opt.startsWith('L/delta');
+    if (!tex) {
+        const what = v6 ? 'L/delta_V = 600' : `${I.opt}, L/delta_V = ${I.lim.toFixed(0)} in span ${I.gov} (factor ${I.k.toFixed(1)}, b_V = 1.0 m/s^2)`;
+        return `deflection limit EN 1990:2023 A.2.9.4.3.2, ${what}, LM71 x Phi ${I.phi.toFixed(2)}, alpha 1`;
+    }
+    const what = v6 ? '$L/\\delta_\\mathrm{V}$ = 600'
+        : `$V_\\mathrm{T}$ = ${I.opt.replace('V_T =', '').replace('km/h', '').trim()} km/h, $b_\\mathrm{V}$ = 1.0 m/s$^2$: $L/\\delta_\\mathrm{V}$ = ${I.lim.toFixed(0)} from Figure A.2.3 times ${I.k.toFixed(1)}, in span ${I.gov}, which governs`;
+    return `$EI$ from the deflection limit of EN 1990:2023 A.2.9.4.3.2, ${what}; deflection from LM71 times $\\Phi$ = ${I.phi.toFixed(2)}, $\\alpha$ = 1, one $EI$ for all spans, rounded up.`;
 }
 const isOnlyLM71 = () => sel.length === 1 && sel[0] === 'LM71';
 
@@ -1154,7 +1322,8 @@ async function buildReport(full) {
           'Wagons loaded or empty, train shortened and distributed loads placed in the most unfavourable way each load model allows, with as many wagons as the bridge needs.',
           ...(inp.dyn ? ["Dynamic factor, not on displacement and rotation: $\\Phi_2$ for EN 1991-2 (8.4.5.2); $1 + \\varphi' + 0.5\\varphi''$ for EN 15528 (EN 1991-2:2024 Annex C) and TRVINFRA-00331 (8.3.3.2.5), the larger sum of the upper and lower limit of the natural frequency; the formula of the standard for SoU 1938 and SoU 1961.",
                         'Determinant length $L_\\Phi$ from EN 1991-2:2024 Table 8.2, 5.2, also the length $l$ of SoU 1938 and SoU 1961.'] : ['No dynamic factor.']),
-          ...(allN.some(n => n === '085F' || n === '060F') ? ['085F: the larger effect of 0.85 F and LG1; 060F: the larger effect of 0.60 F and LG2.'] : [])]);
+          ...(allN.some(n => n === '085F' || n === '060F') ? ['085F: the larger effect of 0.85 F and LG1; 060F: the larger effect of 0.60 F and LG2.'] : []),
+          ...(ui.EIopt ? [eiSource(true)] : [])]);
 
     const stx = clamped.length ? `support${clamped.length > 1 ? 's' : ''} ${clamped.join(', ')} clamped, the others pinned` : 'all supports pinned';
     D.h2('Structural model');
@@ -1164,7 +1333,7 @@ async function buildReport(full) {
     markPeaks(showMode() !== 'Section', mm, sm);
     D.figure(sm, 'Model, dimensions in m.');
 
-    const rows = [['Spans, $L$', inp.L.map(gfmt).join(' + '), 'm'], ['Flexural rigidity, $EI$', inp.EI.map(sci).join(', '), 'Nm$^2$'],
+    const rows = [['Spans, $L$', inp.L.map(gfmt).join(' + '), 'm'], [`Flexural rigidity, $EI$${ui.EIopt ? ', from the deflection limit' : ''}`, inp.EI.map(sci).join(', '), 'Nm$^2$'],
                   ['Element length, d$L$', num(mdl.dL), 'm'], ['Load distribution', inp.loadDist.toLowerCase(), '–']];
     if (inp.loadDist === 'Triangular') rows.push(['Triangle base, $b_Q$', num(inp.b_Q), 'm']);
     if (allN.includes('LM71')) rows.push(['Load classification factor LM71, $\\alpha$', gfmt(scalarOr('iAlpha', 1.33)), '–']);

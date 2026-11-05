@@ -17,6 +17,11 @@ The analysis of six or more new trains runs in Web Workers (up to 16). All 36 tr
 at dL 0.1 m take about 0.2 s against 1.4 s in the page, at dL 0.02 m 0.5 s against 5 s.
 Fewer trains, and a page opened from `file://`, run in the page.
 
+As the MATLAB version (2026-11-05): loads given in tonnes converted with g = 10 m/s², EI optionally
+from the deflection limit of EN 1990:2023 A.2.9.4.3.2 (LM71, Figure A.2.3), input limits (dL 0.01 m to a
+tenth of the shortest span, at most 5000 elements, total length 1-2000 m, alpha 0.75-1.46, v 0-200 km/h),
+spans rounded to whole elements. The influence lines are solved with two steps of iterative refinement.
+
 Print opens the browser's print preview: choose Save as PDF. The date and the page numbers
 "N (M)" need Chrome or Edge 131 or newer.
 

@@ -1,6 +1,8 @@
 /* beamstat2d.js --------------------------------------------------------------
    Static load effects of design trains on a 2D beam, by influence lines: a port of
-   BeamStat2D.m (2026-11-03); see its header for the method and the train models.
+   BeamStat2D.m (2026-11-05); see its header for the method and the train models.
+   Loads given in tonnes (SFS 1919, SoU 1938, SoU 1961, EN 15528) are converted with
+   g = 10 m/s^2, 1 t = 10 kN, as BeamStat2D.m.
 
    BS.influenceLines(inp)         inp: L [m], EI (one or per span), dL, bc [[x, dir, K]],
                                   xp, loadDist, b_Q
@@ -98,22 +100,37 @@ BS.influenceLines = function (inp) {
     const M = col(), V = col(), d = col(), r = col();
     const RF = bc.map(() => new Float64Array(n));
 
-    // unit downward load at every node
-    const D = new Float64Array(nDof), y = new Float64Array(nf);
+    // unit downward load at every node.  Two steps of iterative refinement: the round-off of
+    // the band Cholesky grows fast with the number of elements (midspan moment 3e-5 at 1300
+    // elements, 6e-3 at 5000), after refinement below 1e-6 (2026-11-05)
+    const D = new Float64Array(nDof), y = new Float64Array(nf), res = new Float64Array(nf);
+    const solve = (z, i0) => {
+        for (let i = i0; i < nf; i++) {
+            let v = z[i];
+            for (let k = 1; k <= hb && i - k >= 0; k++) v -= Lc[i * (hb + 1) + k] * z[i - k];
+            z[i] = v / Lc[i * (hb + 1)];
+        }
+        for (let i = nf - 1; i >= 0; i--) {
+            let v = z[i];
+            for (let k = 1; k <= hb && i + k < nf; k++) v -= Lc[(i + k) * (hb + 1) + k] * z[i + k];
+            z[i] = v / Lc[i * (hb + 1)];
+        }
+    };
     for (let c = 0; c < n; c++) {
         y.fill(0);
         const k0 = map[2 * c];
         if (k0 >= 0) {
             y[k0] = -1;
-            for (let i = k0; i < nf; i++) {
-                let v = y[i];
-                for (let k = 1; k <= hb && i - k >= 0; k++) v -= Lc[i * (hb + 1) + k] * y[i - k];
-                y[i] = v / Lc[i * (hb + 1)];
-            }
-            for (let i = nf - 1; i >= 0; i--) {
-                let v = y[i];
-                for (let k = 1; k <= hb && i + k < nf; k++) v -= Lc[(i + k) * (hb + 1) + k] * y[i + k];
-                y[i] = v / Lc[i * (hb + 1)];
+            solve(y, k0);
+            for (let it = 0; it < 2; it++) {
+                for (let i = 0; i < nf; i++) {                   // residual F - K y of the free dofs
+                    const g = fd[i];
+                    let s = 0;
+                    for (let k = -hb; k <= hb; k++) { const q = g + k; if (q >= 0 && q < nDof && map[q] >= 0) s += K[g * (2 * hb + 1) + k + hb] * y[map[q]]; }
+                    res[i] = (i === k0 ? -1 : 0) - s;
+                }
+                solve(res, 0);
+                for (let i = 0; i < nf; i++) y[i] += res[i];
             }
         }
         D.fill(0);
@@ -566,7 +583,7 @@ const rep = (v, n) => new Array(n).fill(v);
 
 BS.trainModel = function (type0, Lneed) {
     Lneed = Lneed || 0;
-    const g = 9.81, type = type0.toUpperCase().replace('/', '').replace('-', '');   // 'SW/0' = 'SW0', 'xL-a' = 'XLA'
+    const g = 10, type = type0.toUpperCase().replace('/', '').replace('-', '');   // 1 t = 10 kN; 'SW/0' = 'SW0', 'xL-a' = 'XLA'
     let q = 0, qe = 0, qseg = [], vs = [], nWagon = 0, xa = [], Pa = [], Pea = [], vi = [], iw = [], vb = [];
     let cv = 1e3 * g, vmax = null, Lg = null, code;
     const nw = Lw => Math.ceil(Lneed / Lw) + 1;
