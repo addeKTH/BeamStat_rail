@@ -9,7 +9,7 @@
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
-const VER = '2026-11-03d';
+const VER = '2026-11-05a';
 
 // ---------------------------------------------------------- default input
 const def = { L: '20 20', EI: '35E9', dL: '0.1', bQType: '1-point', bQLast: '1-point', b_Q: '3.0',
@@ -577,7 +577,8 @@ const mdlPoint = ev => {
 };
 $('model').addEventListener('contextmenu', ev => ev.preventDefault());
 $('model').addEventListener('click', ev => ev.stopPropagation());
-$('model').addEventListener('mousedown', ev => {
+// pointer events: mouse and touch
+$('model').addEventListener('pointerdown', ev => {
     ev.stopPropagation(); ev.preventDefault();
     if (ui.busy || !ILa) return;
     removeSupSel(); mT.style.display = 'none'; $('mBQ').style.display = 'none';
@@ -595,8 +596,8 @@ $('model').addEventListener('mousedown', ev => {
         setSection(j);
         if (showMode() === 'Section') requestPlots();
     };
-    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
-    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    const up = () => { for (const [n, f] of [['pointermove', move], ['pointerup', up], ['pointercancel', up]]) window.removeEventListener(n, f); };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
     move(ev);
 });
 function supMenu(bi) {
