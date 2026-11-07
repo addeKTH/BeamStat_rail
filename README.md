@@ -9,13 +9,16 @@ SW/2), EN 15528, TRVINFRA-00331 (TLM1-4) and the Swedish codes SoU 1938 and SoU 
 | `index.html` | layout, as the MATLAB figure, 560 x 868 px |
 | `app.js` | GUI: input, train tick boxes, plots, Run/Cancel, Reset, Export, Print |
 | `beamstat2d.js` | solver, port of BeamStat2D.m |
-| `solver.worker.js` | Web Worker, one train per job |
+| `solver.worker.js` | Web Worker, one train per job, or the influence lines |
 | `plot.js` | SVG plots and a LaTeX subset for the labels |
 | `xlsx.js` | Excel writer |
 
 The analysis of six or more new trains runs in Web Workers (up to 16). All 36 trains (the list had 36 when measured; now 27)
 at dL 0.1 m take about 0.2 s against 1.4 s in the page, at dL 0.02 m 0.5 s against 5 s.
 Fewer trains, and a page opened from `file://`, run in the page.
+From 400 elements the influence lines (also those of the EI from the deflection limit) are solved
+in a worker of their own (2026-11-07), with the progress bar and Cancel: the page no longer freezes
+while they are built (3 x 100 m at dL 0.01 m: frozen for 10 s before, now at most 0.7 s at a time).
 
 As the MATLAB version (2026-11-05): loads given in tonnes converted with g = 10 m/s², EI optionally
 from the deflection limit of EN 1990:2023 A.2.9.4.3.2 (LM71, Figure A.2.3), input limits (dL 0.01 m to a

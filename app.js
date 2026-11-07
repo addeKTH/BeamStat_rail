@@ -9,7 +9,7 @@
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
-const VER = '2026-11-07a';
+const VER = '2026-11-07b';
 
 // ---------------------------------------------------------- default input
 const def = { L: '20 20', EI: '35E9', dL: '0.1', bQType: '1-point', bQLast: '1-point', b_Q: '3.0',
@@ -371,7 +371,7 @@ function afterMsg() {
     else if (ui.Lmoved) setMsg('L rounded to whole elements of dL');
 }
 
-function updateModel() {
+async function updateModel() {
     if (ui.busy) return false;
     if (!readInput()) { clearResults(); return false; }
     let s0 = 0; const xs = [0, ...inp.L.map(l => (s0 += l))];
@@ -379,7 +379,15 @@ function updateModel() {
     inp.bc = [];
     xs.forEach((x, i) => { inp.bc.push([x, 1, 0]); if (sup[i]) inp.bc.push([x, 2, 0]); });
     mdl.xs = xs; mdl.Ltot = s0; mdl.dL = s0 / BS.nElements(s0, inp.dL);
-    if (ui.EIopt) limitEI();                                     // EI from the deflection limit
+    if (ui.EIopt) {                                              // EI from the deflection limit
+        const heavy = eiKey() !== ui.EIkey && BS.nElements(s0, inp.dL) >= nElWorker;
+        if (heavy) { progStart(); showElements(); setProg(0); }
+        let ok = false;
+        try { ok = await limitEI(); }
+        catch (e) { clearResults(); setMsg(e && e.message ? e.message : 'error', RED); console.error(e); if (heavy) progEnd(); return false; }
+        if (heavy) progEnd();
+        if (!ok) { clearResults(); setMsg('cancelled'); return false; }
+    }
 
     // a new model: new analysis; otherwise only the section has changed
     const s = [inp.dL, inp.loadDist, inp.b_Q, inp.dyn, scalarOr('iAlpha', 1.33), scalarOr('iV', 120), inp.L.join(' '), inp.EI.join(' '), sup.join('')].join('|');
@@ -401,20 +409,25 @@ function updateModel() {
 // goes as 1/EI, so one run at a reference EI scales to the EI that just meets the limit,
 // rounded up to 3 digits; one EI for all spans.  As Main_gui at every node: on a thinned
 // grid the nodes either side of each span's largest deflection are solved again.
-function limitEI() {
-    const key = [ui.EIopt, inp.L.join(' '), inp.dL, sup.join('')].join('|');
+// Resolved with false when cancelled.
+const eiKey = () => [ui.EIopt, inp.L.join(' '), inp.dL, sup.join('')].join('|');
+async function limitEI() {
+    const key = eiKey();
     if (key !== ui.EIkey) {
         const EI0 = 1e10, nEL = BS.nElements(mdl.Ltot, inp.dL), dl = mdl.Ltot / nEL, xs = mdl.xs, nS = inp.L.length;
         const k = nS >= 3 ? 0.9 : 0.7, opt = { dyn: true, dynDisp: true, alpha: 1 };
         const stp = Math.max(1, Math.ceil((nEL + 1) / Math.max(rnd(nMax / (nEL + 1)), 120)));   // as sectionGrid
-        const delAt = idx => {                                   // downward deflection at the nodes idx (m)
-            const I0 = BS.influenceLines({ L: inp.L, EI: EI0, dL: inp.dL, bc: inp.bc, xp: idx.map(i => i * dl), loadDist: '1-point', b_Q: 0 });
+        const delAt = async (idx, p0, p1) => {                   // downward deflection at the nodes idx (m); null: cancelled
+            const I0 = await calcIL({ L: inp.L, EI: EI0, dL: inp.dL, bc: inp.bc, xp: idx.map(i => i * dl), loadDist: '1-point', b_Q: 0 }, p0, p1);
+            if (!I0) return null;
             const L0 = BS.loadEffect(I0, 'LM71', opt);
             return { x: idx.map(i => i * dl), d: Array.from(L0.d[0], v => -v), phi: L0.phi };
         };
         const all = []; for (let i = 0; i <= nEL; i += stp) all.push(i);
         if (all[all.length - 1] !== nEL) all.push(nEL);
-        let R = delAt(all), phi = R.phi;
+        const R = await delAt(all, 0, stp > 1 ? 0.5 : 1);
+        if (!R) return false;
+        let phi = R.phi;
         const best = xs.slice(1).map((x1, i) => {               // per span: index into R of the largest
             let b = -1, v = -Infinity;
             R.x.forEach((x, j) => { if (x >= xs[i] - 1e-9 && x <= x1 + 1e-9 && R.d[j] > v) { v = R.d[j]; b = j; } });
@@ -423,7 +436,8 @@ function limitEI() {
         if (stp > 1) {                                           // every node near each span's largest
             const near = new Set();
             best.forEach(([, i0]) => { for (let i = Math.max(0, i0 - stp); i <= Math.min(nEL, i0 + stp); i++) near.add(i); });
-            const R2 = delAt([...near].sort((a, b) => a - b));
+            const R2 = await delAt([...near].sort((a, b) => a - b), 0.5, 1);
+            if (!R2) return false;
             R2.x.forEach((x, j) => xs.slice(1).forEach((x1, i) => { if (x >= xs[i] - 1e-9 && x <= x1 + 1e-9 && R2.d[j] > best[i][0]) best[i][0] = R2.d[j]; }));
             phi = R2.phi;
         }
@@ -440,6 +454,7 @@ function limitEI() {
     inp.EI = [I.EI];
     $('iEI').value = `${gfmt(I.EI / 1e9)}E9`; $('iEI').classList.add('auto');
     $('iEI').title = `EI from ${I.opt}, EN 1990:2023 A.2.9.4.3.2: LM71 x Phi ${I.phi.toFixed(2)}, alpha 1; L/delta = ${I.lim.toFixed(0)} governs in span ${I.gov}${I.opt.startsWith('L/delta') ? '' : ` (factor ${I.k.toFixed(1)}, not below 600)`}; type a value to set EI by hand`;
+    return true;
 }
 // L/delta_V of EN 1990:2023 Figure A.2.3 (b_V = 1.0 m/s^2) for the span L (m), times k, not
 // below 600; 'L/delta = 600' gives 600 and 'L/delta = 800' 800, plain limits.  The table of points as Main_gui's deflLimit: plateau,
@@ -479,8 +494,36 @@ function setSection(j) {
 const showMode = () => $('iShw').value;
 
 // ============================================================ analysis
-function buildIL() {
-    ILa = BS.influenceLines({ L: inp.L, EI: inp.EI.length === 1 ? inp.EI[0] : inp.EI, dL: inp.dL, bc: inp.bc, xp: mdl.xa, loadDist: inp.loadDist, b_Q: inp.b_Q });
+// influence lines in a worker of their own, so that the page stays live, with the progress
+// bar from p0 to p1 and Cancel (2026-11-07); in the page below nElWorker elements, or when
+// no worker can be made (a page opened from file://).  Resolved with null when cancelled.
+const nElWorker = 400;
+let ilW = null;
+function calcIL(args, p0 = 0, p1 = 1) {
+    const inPage = () => BS.influenceLines(args);
+    if (BS.nElements(args.L.reduce((a, b) => a + b, 0), args.dL) < nElWorker || window.__noWorkers === true) return Promise.resolve().then(inPage);
+    return new Promise((resolve, reject) => {
+        let over = false;
+        const end = () => { over = true; ui.abort = null; };
+        const fallback = () => { end(); if (ilW) ilW.terminate(); ilW = null; try { resolve(inPage()); } catch (e) { reject(e); } };
+        try { if (!ilW) ilW = new Worker(`solver.worker.js?v=${VER}`); } catch (e) { fallback(); return; }
+        ui.abort = () => { if (!over) { end(); ilW.terminate(); ilW = null; resolve(null); } };
+        ilW.onmessage = ev => {
+            if (over) return;
+            const r = ev.data;
+            if (r.prog !== undefined) { setProg(p0 + (p1 - p0) * r.prog); return; }
+            end();
+            if (r.ok) resolve(r.IL); else reject(new Error(r.message));
+        };
+        ilW.onerror = e => { if (!over) { e.preventDefault(); fallback(); } };
+        ilW.postMessage({ ilJob: args });
+    });
+}
+// the influence lines of the model; false when cancelled
+async function buildIL() {
+    const R = await calcIL({ L: inp.L, EI: inp.EI.length === 1 ? inp.EI[0] : inp.EI, dL: inp.dL, bc: inp.bc, xp: mdl.xa, loadDist: inp.loadDist, b_Q: inp.b_Q });
+    if (!R) return false;
+    ILa = R;
     const Ir = ILa.pt || ILa, iv = ILa.bc.map((b, i) => (b[1] === 1 ? i : -1)).filter(i => i >= 0);
     const rng = A => { let a = Infinity, b = -Infinity; for (const c of A) for (let i = 0; i < c.length; i++) { if (c[i] < a) a = c[i]; if (c[i] > b) b = c[i]; } return [a, b]; };
     mdl.rng = { M: rng(Ir.M), V: rng(Ir.V), d: rng(Ir.d), r: rng(Ir.r), RF: rng(iv.map(i => Ir.RF[i])) };
@@ -489,6 +532,7 @@ function buildIL() {
     const ix = mdl.xa.map(x => rnd(x / mdl.dL));
     for (const v of mdl.spc) { const k = ix.indexOf(rnd(v / mdl.dL)); if (k >= 0) e.add(k); }
     mdl.env = [...e].sort((a, b) => a - b);
+    return true;
 }
 function ilAt(j) {
     const pick = (A, B) => { A.xp = j.map(i => ILa.xp[i]); for (const q of ['M', 'V', 'd', 'r']) A[q] = j.map(i => B[q][i]); return A; };
@@ -592,7 +636,15 @@ async function analyse(isNew) {
     const t0 = performance.now();
     showElements();
     try {
-        if (isNew) { await nextFrame(); buildIL(); setSection(null); }
+        if (isNew) {
+            await nextFrame();
+            if (!(await buildIL())) {                            // cancelled: no model, a new update starts again
+                ILa = null; LE = null; allN = []; allR = []; sig = ''; sendKey = null;
+                clearPlots(); $('dynT').innerHTML = ''; msgDone(true, t0); progEnd();
+                return true;
+            }
+            setSection(null);
+        }
         const stopped = await calcEnv(false);
         if (stopped) { ui.busy = false; readInput(); ui.busy = true; }
         updatePlots();
@@ -614,7 +666,7 @@ function setHead() {
     $('idL').title = tip;
 }
 async function onRun() {
-    if (updateModel() === false) return;
+    if ((await updateModel()) === false) return;
     while (ui.busy) await new Promise(r => setTimeout(r, 20));
     if (!ILa) return;
     progStart();

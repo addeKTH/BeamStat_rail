@@ -5,7 +5,7 @@
    g = 10 m/s^2, 1 t = 10 kN, as BeamStat2D.m.
 
    BS.influenceLines(inp)         inp: L [m], EI (one or per span), dL, bc [[x, dir, K]],
-                                  xp, loadDist, b_Q
+                                  xp, loadDist, b_Q, onProgress (optional, fraction done)
    BS.loadEffect(IL, type, opt)   opt: dyn, v, alpha, both, fac
    BS.trainModel(type, Lneed)     train definition
    BS.loadDistribution(type, b_Q, dL)   {x, w}
@@ -116,7 +116,9 @@ BS.influenceLines = function (inp) {
             z[i] = v / Lc[i * (hb + 1)];
         }
     };
+    const prog = inp.onProgress, pStep = Math.max(1, Math.ceil(n / 100));   // optional callback, fraction done
     for (let c = 0; c < n; c++) {
+        if (prog && c % pStep === 0) prog(c / n);
         y.fill(0);
         const k0 = map[2 * c];
         if (k0 >= 0) {
