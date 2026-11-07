@@ -9,14 +9,14 @@
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
-const VER = '2026-11-05b';
+const VER = '2026-11-07a';
 
 // ---------------------------------------------------------- default input
 const def = { L: '20 20', EI: '35E9', dL: '0.1', bQType: '1-point', bQLast: '1-point', b_Q: '3.0',
               alpha: '1.33', v: '120', shw: 'Section', EIopt: 'L/delta = 600' };   // EIopt '' = EI typed
 // EI from the deflection limit of EN 1990:2023 A.2.9.4.3.2: the options and the menu text
-const EIopts = ['L/delta = 600', ...[120, 160, 200, 220, 250, 280, 300, 350].map(v => `V_T = ${v} km/h`)];
-const EIlabel = o => (o.startsWith('L/delta') ? '<i>L</i>/<i>δ</i><sub>V</sub> = 600' : o.replace(/^V_T/, '<i>V</i><sub>T</sub>'));
+const EIopts = ['L/delta = 600', 'L/delta = 800', ...[120, 160, 200, 220, 250, 280, 300, 350].map(v => `V_T = ${v} km/h`)];
+const EIlabel = o => (o.startsWith('L/delta') ? '<i>L</i>/<i>δ</i><sub>V</sub> = ' + o.slice(10) : o.replace(/^V_T/, '<i>V</i><sub>T</sub>'));
 // input limits, as Main_gui
 const dLmin = 0.01, nElMax = 5000, Lmin = 1, Lmax = 2000, alphaLim = [0.75, 1.46], vLim = [0, 200];
 const bQTypes = ['1-point', '3-point', '5-point', 'Triangular'];
@@ -161,7 +161,7 @@ $('bEI').addEventListener('click', ev => {
     ev.stopPropagation();
     const m = $('mBQ'); m.innerHTML = '';
     EIopts.forEach((o, k) => {
-        if (k === 1) m.appendChild(document.createElement('hr'));
+        if (k === 2) m.appendChild(document.createElement('hr'));
         addItem(m, EIlabel(o), ui.EIopt === o, () => { ui.EIopt = o; ui.EIkey = ''; updateModel(); }, true);
     });
     m.style.left = $('bEI').offsetLeft + 'px'; m.style.top = ($('bEI').offsetTop + 22) + 'px'; m.style.display = 'block';
@@ -273,7 +273,10 @@ function readInput() {
     if (goodVec(L) && dL !== null) {
         const s0 = sum(L), dMax = Math.max(Math.min(...L) / 10, dLmin);
         if (dL > dMax) { dL = dMax; dLshow = gfmt(dL); dLgrey = true; }
-        const dN = Math.ceil(s0 / nElMax * 100) / 100;
+        // dL in whole cm; the spans are then rounded to whole elements, which may add one per
+        // span, so that is allowed: the rounded spans give the same dL on the next update
+        let dN = Math.max(Math.floor(s0 / nElMax * 100) / 100, dLmin);
+        while (sum(L.map(l => rnd(l / dN))) > nElMax + L.length) dN = Number((dN + 0.01).toFixed(2));
         if (dL < dN) { dL = dN; ui.nCap = true; dLshow = gfmt(dL); dLgrey = true; }
         if (s0 < 10 && rnd(s0 / dL) < 100) { dLshow = gfmt(s0 / 100); dLgrey = true; }
     }
@@ -308,7 +311,9 @@ function readInput() {
         inp.b_Q = 0;
     }
     $('ibQ').title = `Load distribution of each axle, ${ui.bQType.toLowerCase()}: pick 1-, 3- or 5-point with the button, or type the base b_Q (m) of a triangle; empty = back to the point distribution. LM71: 1-point = the 4 axle loads, any other = evenly distributed on 6.4 m`;
-    let ok = goodVec(L) && sum(L) >= Lmin && sum(L) <= Lmax && goodVec(EI) && (EI.length === 1 || EI.length === L.length)
+    // the total length may exceed Lmax by the rounding of the spans, half an element per span
+    const Ltol = goodVec(L) && dL !== null ? L.length * Math.abs(dL) / 2 + 1e-9 : 0;
+    let ok = goodVec(L) && sum(L) >= Lmin && sum(L) <= Lmax + Ltol && goodVec(EI) && (EI.length === 1 || EI.length === L.length)
         && dL !== null && dL > 0 && inp.b_Q !== null && inp.b_Q >= 0 && xv !== null
         && inp.alpha !== null && (!onV || inp.v !== null);
     if (ok) ok = realSpans();
@@ -434,13 +439,13 @@ function limitEI() {
     const I = ui.EIinfo;
     inp.EI = [I.EI];
     $('iEI').value = `${gfmt(I.EI / 1e9)}E9`; $('iEI').classList.add('auto');
-    $('iEI').title = `EI from ${I.opt}, EN 1990:2023 A.2.9.4.3.2: LM71 x Phi ${I.phi.toFixed(2)}, alpha 1; L/delta = ${I.lim.toFixed(0)} governs in span ${I.gov} (factor ${I.k.toFixed(1)}, not below 600); type a value to set EI by hand`;
+    $('iEI').title = `EI from ${I.opt}, EN 1990:2023 A.2.9.4.3.2: LM71 x Phi ${I.phi.toFixed(2)}, alpha 1; L/delta = ${I.lim.toFixed(0)} governs in span ${I.gov}${I.opt.startsWith('L/delta') ? '' : ` (factor ${I.k.toFixed(1)}, not below 600)`}; type a value to set EI by hand`;
 }
 // L/delta_V of EN 1990:2023 Figure A.2.3 (b_V = 1.0 m/s^2) for the span L (m), times k, not
-// below 600; 'L/delta = 600' gives 600.  The table of points as Main_gui's deflLimit: plateau,
+// below 600; 'L/delta = 600' gives 600 and 'L/delta = 800' 800, plain limits.  The table of points as Main_gui's deflLimit: plateau,
 // plateau end, peak L, peak L/delta, end L at 600; straight between; L > 120 m as at 120 m.
 function deflLimit(opt, L, k) {
-    if (opt.startsWith('L/delta')) return 600;
+    if (opt.startsWith('L/delta')) return parseFloat(opt.slice(10));
     const V = parseFloat(opt.replace('V_T =', ''));
     const C = [[120, 800, 10.0, 22.2, 890, 36.8], [160, 900, 12.5, 29.8, 1190, 63.6], [200, 1000, 15.0, 37.6, 1520, 90.2],
                [220, 1100, 17.5, 41.0, 1660, 101.6], [250, 1200, 20.0, 47.4, 1910, 122.2], [280, 1300, 22.5, 52.4, 2130, 139.8],
@@ -1093,10 +1098,10 @@ function eiSource(tex) {
     if (!ui.EIopt || !ui.EIinfo) return 'input';
     const I = ui.EIinfo, v6 = I.opt.startsWith('L/delta');
     if (!tex) {
-        const what = v6 ? 'L/delta_V = 600' : `${I.opt}, L/delta_V = ${I.lim.toFixed(0)} in span ${I.gov} (factor ${I.k.toFixed(1)}, b_V = 1.0 m/s^2)`;
+        const what = v6 ? `L/delta_V = ${I.lim.toFixed(0)}` : `${I.opt}, L/delta_V = ${I.lim.toFixed(0)} in span ${I.gov} (factor ${I.k.toFixed(1)}, b_V = 1.0 m/s^2)`;
         return `deflection limit EN 1990:2023 A.2.9.4.3.2, ${what}, LM71 x Phi ${I.phi.toFixed(2)}, alpha 1`;
     }
-    const what = v6 ? '$L/\\delta_\\mathrm{V}$ = 600'
+    const what = v6 ? `$L/\\delta_\\mathrm{V}$ = ${I.lim.toFixed(0)}`
         : `$V_\\mathrm{T}$ = ${I.opt.replace('V_T =', '').replace('km/h', '').trim()} km/h, $b_\\mathrm{V}$ = 1.0 m/s$^2$: $L/\\delta_\\mathrm{V}$ = ${I.lim.toFixed(0)} from Figure A.2.3 times ${I.k.toFixed(1)}, in span ${I.gov}, which governs`;
     return `$EI$ from the deflection limit of EN 1990:2023 A.2.9.4.3.2, ${what}; deflection from LM71 times $\\Phi$ = ${I.phi.toFixed(2)}, $\\alpha$ = 1, one $EI$ for all spans, rounded up.`;
 }
