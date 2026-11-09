@@ -9,7 +9,7 @@
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
-const VER = '2026-11-09a';
+const VER = '2026-11-09c';
 
 // ---------------------------------------------------------- default input
 const def = { L: '20 20', EI: '35E9', dL: '0.1', bQType: '1-point', bQLast: '1-point', b_Q: '3.0',
@@ -64,12 +64,30 @@ function evalExpr(s) {
     if (i !== s.length || !isFinite(v)) throw 0;
     return v;
 }
+// the input boxes: at most this many characters; a box with an error is light red; a comma is
+// a decimal point, also in the box
+const maxIn = 200;
+document.querySelectorAll('#fig input:not([type=checkbox])').forEach(e => { e.maxLength = maxIn; });
+function markBad(bad) { for (const id in bad) $(id).classList.toggle('bad', !!bad[id]); }
+function fixComma(ids) { for (const id of ids) if ($(id).value.includes(',')) $(id).value = $(id).value.replace(/,/g, '.'); }
 function parseVec(str) {
+    if (String(str).length > maxIn) return null;
     try {
-        let s = String(str).trim().replace(/^\[|\]$/g, '').replace(/,/g, ' ').trim();
+        let s = String(str).trim().replace(/^\[|\]$/g, '').replace(/,/g, '.').replace(/;/g, ' ').trim();
         if (!s) return null;
-        s = s.replace(/([*/^+(-])\s+/g, '$1').replace(/\s+([*/^)])/g, '$1');
-        return s.split(/\s+/).map(evalExpr);
+        s = s.replace(/\s*:\s*/g, ':').replace(/([*/^+(-])\s+/g, '$1').replace(/\s+([*/^)])/g, '$1');
+        const out = [];
+        for (const tok of s.split(/\s+/)) {
+            const p = tok.split(':').map(evalExpr);
+            if (p.length === 1) { out.push(p[0]); continue; }
+            if (p.length > 3) return null;
+            const [a, st, b] = p.length === 2 ? [p[0], 1, p[1]] : p;
+            if (!st) return null;
+            const n = Math.floor((b - a) / st + 1e-10) + 1;      // a:b, a:s:b
+            if (out.length + n > 1000) return null;
+            for (let k = 0; k < n; k++) out.push(Number((a + k * st).toPrecision(12)));
+        }
+        return out.length ? out : null;
     } catch (e) { return null; }
 }
 const scalar = s => { const v = parseVec(s); return v && v.length === 1 ? v[0] : null; };
@@ -105,7 +123,7 @@ for (const id in SYMS) {
     el.dataset.tip = tip;
     el.addEventListener('click', ev => {
         ev.stopPropagation();
-        if (ui.busy && !(id === 'sRun' && ui.stopOn)) return;       // during a run: Cancel only
+        if (el.classList.contains('off') || (ui.busy && !(id === 'sRun' && ui.stopOn))) return;   // off; during a run: Cancel only
         hideTip(); fcn();
     });
     el.addEventListener('mouseenter', () => showTip(el));
@@ -261,6 +279,8 @@ function syncTicks() {
 
 // ============================================================ input / model
 function readInput() {
+    fixComma(['iL', 'iEI', 'iXp', 'iAlpha', 'iV', 'ibQ']);
+    ui.dLset = String(ui.dLset).replace(/,/g, '.');
     const L = parseVec($('iL').value), EI = parseVec($('iEI').value);
     let dL = scalar(ui.dLset);
     // dL: a negative value counts as positive, at least dLmin, and these replace what was typed
@@ -316,7 +336,14 @@ function readInput() {
     let ok = goodVec(L) && sum(L) >= Lmin && sum(L) <= Lmax + Ltol && goodVec(EI) && (EI.length === 1 || EI.length === L.length)
         && dL !== null && dL > 0 && inp.b_Q !== null && inp.b_Q >= 0 && xv !== null
         && inp.alpha !== null && (!onV || inp.v !== null);
-    if (ok) ok = realSpans();
+    let spansOK = true;
+    if (ok) { ok = realSpans(); spansOK = ok; }
+    // the boxes with an error; Export and Print only from a valid input
+    markBad({ iL: !goodVec(L) || sum(L) < Lmin || sum(L) > Lmax + Ltol || !spansOK,
+              iEI: !(goodVec(EI) && (!goodVec(L) || EI.length === 1 || EI.length === L.length)),
+              idL: !(dL !== null && dL > 0), iXp: xv === null, iAlpha: inp.alpha === null,
+              iV: onV && inp.v === null, ibQ: !(inp.b_Q !== null && inp.b_Q >= 0) });
+    for (const id of ['sExp', 'sRep']) $(id).classList.toggle('off', !ok);
     if (ok) {
         if (xpAuto) { xv = inp.L[0] / 2; $('iXp').value = gfmt(xv); }
         xp = Math.min(Math.max(xv, 0), sum(inp.L));
