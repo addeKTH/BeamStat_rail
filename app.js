@@ -1,7 +1,7 @@
 /* app.js --------------------------------------------------------------------
    Railway bridge static load effects, web version of Main_gui.m (2026-11-05):
    input, sketch and analysis of the ticked trains on every change (Web Workers from
-   six trains), Section / Critical / Envelope, Run (Cancel after 5 s), Reset, Export
+   six trains), Section / Critical / Envelope, Run (Cancel after 1 s), Reset, Export
    (xlsx), Print (report by browser print to PDF).
 
    Andreas Andersson, 2026-11-02 (assisted by Claude)
@@ -9,7 +9,7 @@
 (function () {
 'use strict';
 const $ = id => document.getElementById(id);
-const VER = '2026-11-09c';
+const VER = '2026-11-09d';
 
 // ---------------------------------------------------------- default input
 const def = { L: '20 20', EI: '35E9', dL: '0.1', bQType: '1-point', bQLast: '1-point', b_Q: '3.0',
@@ -90,6 +90,20 @@ function parseVec(str) {
         return out.length ? out : null;
     } catch (e) { return null; }
 }
+// The span lengths from the box L.  L1:dL:Ltot is a first span L1, then spans of dL up to the
+// total length Ltot, which comes back in .s rounded down to whole spans (10:10:59 is 10:10:50);
+// otherwise as parseVec.  .v null if they cannot be read; at most 1000 spans.
+function readSpans(str) {
+    const s = String(str).replace(/,/g, '.').trim();
+    if (!s.includes(':')) return { v: parseVec(s), s: null };
+    const p = s.split(':').map(t => { const x = parseVec(t); return x && x.length === 1 ? x[0] : null; });
+    if (s.length > maxIn || p.length !== 3 || p.includes(null)) return { v: null, s: null };
+    const [a, d, T] = p;
+    if (!(a > 0 && d > 0 && T >= a)) return { v: null, s: null };
+    const n = Math.floor((T - a) / d + 1e-9);
+    if (n + 1 > 1000) return { v: null, s: null };
+    return { v: [a, ...new Array(n).fill(d)], s: `${gfmt(a)}:${gfmt(d)}:${gfmt(Number((a + n * d).toFixed(10)))}` };
+}
 const scalar = s => { const v = parseVec(s); return v && v.length === 1 ? v[0] : null; };
 const scalarOr = (id, d) => { const v = scalar($(id).value); return v !== null && v > 0 ? v : d; };
 const gfmt = x => String(Number(x.toPrecision(6)));              // %g
@@ -141,11 +155,11 @@ function setProg(fr) {
     if (fr === null) { $('pfill').style.width = '0'; $('pct').textContent = ''; return; }
     $('pfill').style.width = (100 * fr) + '%'; $('pct').textContent = Math.round(100 * fr) + ' %';
 }
-// a run or a report: the Run symbol becomes Cancel after 5 s
+// a run or a report: the Run symbol becomes Cancel after 1 s
 function progStart() {
     ui.stopReq = false; ui.busy = true; $('fig').classList.add('busy'); tProg = performance.now();
     clearTimeout(ui.stopTimer);
-    ui.stopTimer = setTimeout(() => { ui.stopOn = true; setIcon('sRun', 'stop'); $('sRun').dataset.tip = TIP.stop; }, 5000);
+    ui.stopTimer = setTimeout(() => { ui.stopOn = true; setIcon('sRun', 'stop'); $('sRun').dataset.tip = TIP.stop; }, 1000);
 }
 function progEnd() {
     clearTimeout(ui.stopTimer);
@@ -281,7 +295,9 @@ function syncTicks() {
 function readInput() {
     fixComma(['iL', 'iEI', 'iXp', 'iAlpha', 'iV', 'ibQ']);
     ui.dLset = String(ui.dLset).replace(/,/g, '.');
-    const L = parseVec($('iL').value), EI = parseVec($('iEI').value);
+    const LS = readSpans($('iL').value);
+    if (LS.s) $('iL').value = LS.s;                              // L1:dL:Ltot, Ltot on whole spans
+    const L = LS.v, EI = parseVec($('iEI').value);
     let dL = scalar(ui.dLset);
     // dL: a negative value counts as positive, at least dLmin, and these replace what was typed
     if (dL !== null && (dL < 0 || Math.abs(dL) < dLmin)) { dL = Math.max(Math.abs(dL), dLmin); ui.dLset = gfmt(dL); }
